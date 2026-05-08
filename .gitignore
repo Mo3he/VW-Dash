@@ -1,0 +1,33 @@
+# Runtime data (credentials stored here via Settings UI)
+data/
+backend/data/
+
+# Optional .env override (not required)
+.env
+
+# Database backups
+*.vwsfrienddbbackup
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# Build artefacts
+frontend/tsconfig.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db

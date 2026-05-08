@@ -1,0 +1,65 @@
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+
+from config import settings
+from database import Base, engine
+from poller import init_weconnect, poll
+from routers import charging, trips, vehicle, settings_router
+from ws import connect, disconnect
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+scheduler = AsyncIOScheduler()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    init_weconnect()
+    scheduler.add_job(
+        poll,
+        "interval",
+        seconds=settings.poll_interval_seconds,
+        id="poller",
+        next_run_time=datetime.now(timezone.utc),  # run immediately on startup
+    )
+    scheduler.start()
+    logger.info("Scheduler started — polling every %ds", settings.poll_interval_seconds)
+    yield
+    scheduler.shutdown()
+
+
+app = FastAPI(title="VW Dash", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(vehicle.router)
+app.include_router(charging.router)
+app.include_router(trips.router)
+app.include_router(settings_router.router)
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await connect(ws)
+    try:
+        while True:
+            await ws.receive_text()  # keep connection alive; we only push server→client
+    except WebSocketDisconnect:
+        disconnect(ws)
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
