@@ -1,18 +1,9 @@
 services:
-  backend:
-    build: ./backend
+  vw-dash:
+    build: .
     restart: unless-stopped
     volumes:
       - ./data:/app/data
     ports:
-      - "8000:8000"
-
-  frontend:
-    build: ./frontend
-    restart: unless-stopped
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-    ports:
       - "3000:3000"
-    depends_on:
-      - backend
+      - "8000:8000"

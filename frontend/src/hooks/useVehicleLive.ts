@@ -9,7 +9,7 @@ export function useVehicleLive() {
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${protocol}://${window.location.host}/ws`;
+    const url = `${protocol}://${window.location.hostname}:8000/ws`;
 
     function connect() {
       const ws = new WebSocket(url);

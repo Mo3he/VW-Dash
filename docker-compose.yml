@@ -1,18 +1,9 @@
 services:
-  backend:
-    image: ghcr.io/mo3he/vw-dash-backend:latest
+  vw-dash:
+    image: ghcr.io/mo3he/vw-dash:latest
     restart: unless-stopped
     volumes:
       - ./data:/app/data
     ports:
-      - "8000:8000"
-
-  frontend:
-    image: ghcr.io/mo3he/vw-dash-frontend:latest
-    restart: unless-stopped
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-    ports:
       - "3000:3000"
-    depends_on:
-      - backend
+      - "8000:8000"

@@ -29,7 +29,9 @@ Open **http://localhost:3000**, go to **Settings**, and enter your VW WeConnect 
 
 Data is persisted in a `./data/` folder next to the compose file.
 
-## Quick start (local dev / build from source)
+> The dashboard runs on port **3000** and the API on port **8000** (used by the live status WebSocket — you don't need to open it directly).
+
+## Quick start (local dev)
 
 ### Prerequisites
 
@@ -44,7 +46,7 @@ cd VW-Dash
 
 Open **http://localhost:3000**, then configure via **Settings**.
 
-To build and run the Docker images locally:
+To build and run the Docker image locally from source:
 
 ```bash
 docker compose -f docker-compose.build.yml up -d
