@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { useState, useRef } from "react";
+import { Eye, EyeOff, Upload } from "lucide-react";
 
 interface ServerSettings {
   vw_username: string;
@@ -41,11 +41,47 @@ function toForm(s: ServerSettings | null): FormState {
   };
 }
 
+interface ImportResult {
+  snapshots: number;
+  trips: number;
+  charging_sessions: number;
+}
+
 export default function SettingsForm({ initial }: Props) {
   const [form, setForm] = useState<FormState>(toForm(initial));
   const [showPassword, setShowPassword] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importBatteryKwh, setImportBatteryKwh] = useState("77");
+  const [importWipe, setImportWipe] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  async function handleImport() {
+    if (!importFile) return;
+    setImportLoading(true);
+    setImportResult(null);
+    setImportError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", importFile);
+      fd.append("battery_kwh", importBatteryKwh);
+      fd.append("wipe", String(importWipe));
+      const res = await fetch("/api/import/vwsfriend", { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      setImportResult(await res.json());
+      setImportFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err) {
+      setImportError(String(err));
+    } finally {
+      setImportLoading(false);
+    }
+  }
 
   function set(key: keyof FormState, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -234,6 +270,66 @@ export default function SettingsForm({ initial }: Props) {
       {error && (
         <div className="text-center text-sm text-red-400">{error}</div>
       )}
+
+      {/* VWsFriend Import */}
+      <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-4">
+        <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">
+          Import from VWsFriend
+        </div>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Backup file (.vwsfrienddbbackup)</span>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".backup,.vwsfrienddbbackup"
+            onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+            className="text-sm text-gray-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-[#00B0F0]/10 file:text-[#00B0F0] hover:file:bg-[#00B0F0]/20 cursor-pointer"
+          />
+        </label>
+
+        <div className="flex gap-3 items-end">
+          <label className="flex flex-col gap-1 w-36">
+            <span className="text-xs text-gray-500 uppercase tracking-wider">Battery capacity (kWh)</span>
+            <input
+              type="number"
+              value={importBatteryKwh}
+              onChange={(e) => setImportBatteryKwh(e.target.value)}
+              step="0.1"
+              min="1"
+              className={inputClass}
+            />
+          </label>
+          <label className="flex items-center gap-2 pb-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={importWipe}
+              onChange={(e) => setImportWipe(e.target.checked)}
+              className="accent-[#00B0F0] w-4 h-4"
+            />
+            <span className="text-xs text-gray-400">Replace existing data</span>
+          </label>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleImport}
+          disabled={!importFile || importLoading}
+          className="flex items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 text-white font-medium py-2.5 text-sm hover:bg-white/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Upload size={15} />
+          {importLoading ? "Importing…" : "Import"}
+        </button>
+
+        {importResult && (
+          <div className="text-sm text-green-400 text-center">
+            Imported {importResult.snapshots} snapshots · {importResult.trips} trips · {importResult.charging_sessions} charging sessions
+          </div>
+        )}
+        {importError && (
+          <div className="text-sm text-red-400 text-center">{importError}</div>
+        )}
+      </div>
     </form>
   );
 }

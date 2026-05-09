@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database import Base, engine
 from poller import init_weconnect, poll
-from routers import charging, trips, vehicle, settings_router
+from routers import charging, trips, vehicle, settings_router, import_router
 from ws import connect, disconnect
 
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +48,7 @@ app.include_router(vehicle.router)
 app.include_router(charging.router)
 app.include_router(trips.router)
 app.include_router(settings_router.router)
+app.include_router(import_router.router)
 
 
 @app.websocket("/ws")
