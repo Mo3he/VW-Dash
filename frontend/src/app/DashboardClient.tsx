@@ -35,8 +35,7 @@ export default function DashboardClient({ initial, history }: Props) {
   const chargePower = live?.charge_power_kw ?? initial?.charge_power_kw ?? null;
   const plugged = live?.plug_connected ?? initial?.plug_connected ?? null;
   const locked = live?.locked ?? initial?.locked ?? null;
-  const outdoorTempC = live?.outdoor_temp_c ?? initial?.outdoor_temp_c ?? null;
-  const cabinTempC = initial?.cabin_temp_c ?? null;
+  const batteryTempC = initial?.battery_temp_c ?? null;
   const targetSoc = initial?.target_soc_pct ?? null;
   const remainingMin = initial?.remaining_charge_time_min ?? null;
 
@@ -101,17 +100,12 @@ export default function DashboardClient({ initial, history }: Props) {
         )}
 
         <StatusCard
-          label="Outside temp"
+          label="Battery temp"
           value={
-            outdoorTempC != null ? (
+            batteryTempC != null ? (
               <span className="flex items-center gap-1.5">
                 <Thermometer size={16} className="text-orange-400" />
-                {outdoorTempC.toFixed(1)}°C
-              </span>
-            ) : cabinTempC != null ? (
-              <span className="flex items-center gap-1.5">
-                <Thermometer size={16} className="text-orange-400" />
-                {cabinTempC.toFixed(1)}°C cabin
+                {batteryTempC.toFixed(1)}°C
               </span>
             ) : (
               "—"

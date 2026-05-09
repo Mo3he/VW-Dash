@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import Base, engine
+from sqlalchemy import text
 from poller import init_weconnect, poll
 from routers import charging, trips, vehicle, settings_router, import_router
 from ws import connect, disconnect
@@ -18,9 +19,23 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
+def _run_migrations() -> None:
+    """Add columns that may be missing from older databases."""
+    with engine.connect() as conn:
+        for stmt in [
+            "ALTER TABLE vehicle_snapshots ADD COLUMN battery_temp_c FLOAT",
+        ]:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
     init_weconnect()
     scheduler.add_job(
         poll,

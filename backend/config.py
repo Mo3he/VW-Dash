@@ -3,7 +3,8 @@ import json
 import os
 from pydantic_settings import BaseSettings
 
-_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "config.json")
+_DATA_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data"))
+_CONFIG_FILE = os.path.join(_DATA_DIR, "config.json")
 
 
 class Settings(BaseSettings):
@@ -13,7 +14,7 @@ class Settings(BaseSettings):
     vw_vin: str = ""
 
     poll_interval_seconds: int = 300
-    db_path: str = "data/vwdash.db"
+    db_path: str = os.path.join(_DATA_DIR, "vwdash.db")
 
     electricity_rate_per_kwh: float = 0.13
     currency_symbol: str = "$"

@@ -83,6 +83,7 @@ def _snap_to_dict(s: VehicleSnapshot) -> dict:
         "parking_time": s.parking_time.isoformat() if s.parking_time else None,
         "outdoor_temp_c": s.outdoor_temp_c,
         "cabin_temp_c": s.cabin_temp_c,
+        "battery_temp_c": s.battery_temp_c,
         "climatisation_state": s.climatisation_state,
         "locked": s.locked,
         "odometer_km": s.odometer_km,

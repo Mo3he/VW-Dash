@@ -15,6 +15,7 @@ export interface VehicleSnapshot {
   parking_time: string | null;
   outdoor_temp_c: number | null;
   cabin_temp_c: number | null;
+  battery_temp_c: number | null;
   climatisation_state: string | null;
   locked: boolean | null;
   odometer_km: number | null;

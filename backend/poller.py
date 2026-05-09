@@ -151,21 +151,30 @@ def _extract_snapshot(vehicle) -> dict:
         if cl:
             data["climatisation_state"] = str(_val(cl, "climatisationState") or "")
 
-        # Climatisation settings — target/outdoor temp  (domain: climatisation)
+        # Climatisation settings — target cabin temp  (domain: climatisation)
         clst = _domain(vehicle, "climatisation", "climatisationSettings")
         if clst:
             data["cabin_temp_c"] = _safe_float(_val(clst, "targetTemperature_C"))
 
-        # Access — lock status  (domain: access)
+        # Access — lock status: overallStatus is "safe" (locked) or "unsafe"
         ac = _domain(vehicle, "access", "accessStatus")
         if ac:
-            lock = _val(ac, "doorLockStatus")
-            data["locked"] = lock == "LOCKED" if lock else None
+            overall = _val(ac, "overallStatus")
+            if overall is not None:
+                data["locked"] = str(overall).lower() == "safe"
 
-        # Maintenance — odometer  (domain: maintenance)
-        ms = _domain(vehicle, "maintenance", "maintenanceStatus")
-        if ms:
-            data["odometer_km"] = _safe_float(_val(ms, "mileage_km"))
+        # Odometer  (domain: measurements)
+        om = _domain(vehicle, "measurements", "odometerMeasurement")
+        if om:
+            data["odometer_km"] = _safe_float(_val(om, "odometer"))
+
+        # Battery temperature — values are in Kelvin  (domain: measurements)
+        bt = _domain(vehicle, "measurements", "temperatureBatteryStatus")
+        if bt:
+            t_min = _safe_float(_val(bt, "temperatureHvBatteryMin_K"))
+            t_max = _safe_float(_val(bt, "temperatureHvBatteryMax_K"))
+            if t_min is not None and t_max is not None:
+                data["battery_temp_c"] = round((t_min + t_max) / 2 - 273.15, 1)
 
     except Exception as exc:
         logger.warning("Error extracting snapshot: %s", exc)
