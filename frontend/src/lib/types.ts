@@ -30,12 +30,17 @@ export interface ChargingSession {
   soc_start_pct: number | null;
   soc_end_pct: number | null;
   kwh_added: number | null;
+  kwh_added_real: number | null;
   range_added_km: number | null;
   range_added_miles: number | null;
   peak_power_kw: number | null;
+  avg_power_kw: number | null;
   charge_type: string | null;
   cost: number | null;
   cost_per_kwh: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  location_name: string | null;
   currency_symbol: string;
   currency_after: boolean;
 }
@@ -58,6 +63,22 @@ export interface Trip {
   end_lon: number | null;
   outdoor_temp_c: number | null;
   outdoor_temp_f: number | null;
+  start_address: string | null;
+  end_address: string | null;
+}
+
+export interface ChargeLocation {
+  name: string;
+  latitude: number;
+  longitude: number;
+  sessions: number;
+  total_kwh: number;
+}
+
+export interface TopCharger {
+  name: string;
+  sessions: number;
+  total_kwh: number;
 }
 
 export interface ChargingStats {
@@ -69,6 +90,11 @@ export interface ChargingStats {
   dc_session_count: number;
   ac_session_count: number;
   avg_kwh_per_session: number;
+  total_cycles: number;
+  high_c_session_count: number;
+  low_c_session_count: number;
+  top_chargers: TopCharger[];
+  est_vs_real_pct: number | null;
   electricity_rate: number;
   currency_symbol: string;
   currency_after: boolean;
@@ -89,6 +115,31 @@ export interface TripStats {
 export interface BatteryHealth {
   latest_soh_pct: number | null;
   history: { date: string; range_km: number; soh_pct: number }[];
+}
+
+export interface PopularRoute {
+  start: string;
+  end: string;
+  count: number;
+  avg_distance_km: number | null;
+}
+
+export interface Journey {
+  date: string;
+  trip_count: number;
+  total_km: number;
+  total_kwh: number;
+  start_address: string | null;
+  end_address: string | null;
+  trips: Trip[];
+}
+
+export interface EventItem {
+  id: number;
+  occurred_at: string;
+  event_type: string;
+  label: string;
+  detail: Record<string, unknown> | null;
 }
 
 export interface WsMessage {

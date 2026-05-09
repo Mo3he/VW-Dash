@@ -1,11 +1,12 @@
 "use client";
 import { useState } from "react";
 import {
-  Lock, Unlock, Plug, Thermometer, Zap, Clock, Wind, MapPin, Gauge,
+  Lock, Unlock, Plug, Thermometer, Zap, Clock, Wind, Gauge,
 } from "lucide-react";
 import SocGauge from "@/components/SocGauge";
 import StatusCard from "@/components/StatusCard";
 import SocHistory from "@/components/SocHistory";
+import EventsFeed from "@/components/EventsFeed";
 import { useVehicleLive } from "@/hooks/useVehicleLive";
 import type { VehicleSnapshot } from "@/lib/types";
 import { api } from "@/lib/api";
@@ -74,6 +75,7 @@ export default function DashboardClient({ initial, history }: Props) {
   const parkingTime = initial?.parking_time ?? null;
   const odometer = initial?.odometer_km ?? null;
 
+  const recordedAt = live?.recorded_at ?? initial?.recorded_at ?? null;
   const isCharging = chargingState === "CHARGING";
   const isClimateActive = climatisationState != null &&
     climatisationState !== "OFF" &&
@@ -256,11 +258,12 @@ export default function DashboardClient({ initial, history }: Props) {
 
       {history.length > 1 && <SocHistory data={history} />}
 
-      {(live?.recorded_at ?? initial?.recorded_at) && (
+      <EventsFeed pollTrigger={live?.recorded_at} />
+
+      {recordedAt && (
         <div className="flex items-center gap-1.5 justify-center text-xs text-gray-600">
           <Clock size={12} />
-          Last updated{" "}
-          {new Date(live?.recorded_at ?? initial!.recorded_at).toLocaleTimeString("sv-SE")}
+          Last updated {new Date(recordedAt).toLocaleTimeString("sv-SE")}
         </div>
       )}
     </div>

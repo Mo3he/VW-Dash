@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Zap, Pencil, X, Check } from "lucide-react";
+import { Zap, Pencil, X, Check, MapPin } from "lucide-react";
 import type { ChargingSession } from "@/lib/types";
 import { api } from "@/lib/api";
 import clsx from "clsx";
@@ -15,6 +15,7 @@ interface EditState {
   soc_start_pct: string;
   soc_end_pct: string;
   kwh_added: string;
+  kwh_added_real: string;
   cost: string;
   cost_per_kwh: string;
   charge_type: string;
@@ -43,6 +44,7 @@ function sessionToEditState(s: ChargingSession): EditState {
     soc_start_pct: s.soc_start_pct?.toString() ?? "",
     soc_end_pct: s.soc_end_pct?.toString() ?? "",
     kwh_added: s.kwh_added?.toString() ?? "",
+    kwh_added_real: s.kwh_added_real?.toString() ?? "",
     cost: s.cost?.toString() ?? "",
     cost_per_kwh: s.cost_per_kwh?.toString() ?? "",
     charge_type: s.charge_type ?? "AC",
@@ -77,6 +79,7 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
       if (editState.soc_start_pct !== "") body.soc_start_pct = parseFloat(editState.soc_start_pct);
       if (editState.soc_end_pct !== "") body.soc_end_pct = parseFloat(editState.soc_end_pct);
       if (editState.kwh_added !== "") body.kwh_added = parseFloat(editState.kwh_added);
+      if (editState.kwh_added_real !== "") body.kwh_added_real = parseFloat(editState.kwh_added_real);
       if (editState.cost_per_kwh !== "") body.cost_per_kwh = parseFloat(editState.cost_per_kwh);
       if (editState.cost !== "") body.cost = parseFloat(editState.cost);
       if (editState.charge_type) body.charge_type = editState.charge_type;
@@ -113,8 +116,16 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
             key={s.id}
             className="rounded-2xl bg-[#161b27] border border-white/5 p-4"
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm text-white font-medium">{formatDate(s.started_at)}</div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex flex-col">
+                <div className="text-sm text-white font-medium">{formatDate(s.started_at)}</div>
+                {s.location_name && (
+                  <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                    <MapPin size={10} className="text-[#00B0F0] shrink-0" />
+                    <span className="truncate max-w-[180px]">{s.location_name}</span>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 {!isEditing && (
                   <span
@@ -180,12 +191,22 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                     />
                   </label>
                   <label className="flex flex-col gap-1">
-                    <span className="text-xs text-gray-500">kWh added</span>
+                    <span className="text-xs text-gray-500">kWh estimated</span>
                     <input
                       type="number"
                       step="0.01"
                       value={editState.kwh_added}
                       onChange={(e) => setEditState({ ...editState, kwh_added: e.target.value })}
+                      className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">kWh actual</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editState.kwh_added_real}
+                      onChange={(e) => setEditState({ ...editState, kwh_added_real: e.target.value })}
                       className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
                     />
                   </label>
@@ -263,7 +284,7 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 text-center mt-3">
+                <div className="grid grid-cols-4 gap-2 text-center mt-3">
                   <div>
                     <div className="text-sm font-medium text-white">
                       {s.range_added_km != null ? `${s.range_added_km} km` : "—"}
@@ -274,7 +295,13 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                     <div className="text-sm font-medium text-white">
                       {s.peak_power_kw != null ? `${s.peak_power_kw} kW` : "—"}
                     </div>
-                    <div className="text-xs text-gray-500 mt-0.5">Peak power</div>
+                    <div className="text-xs text-gray-500 mt-0.5">Peak</div>
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-white">
+                      {s.avg_power_kw != null ? `${s.avg_power_kw} kW` : "—"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">Avg power</div>
                   </div>
                   <div>
                     <div className="text-sm font-medium text-white">

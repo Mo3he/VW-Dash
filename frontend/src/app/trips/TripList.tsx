@@ -1,7 +1,10 @@
 "use client";
+import { useState } from "react";
 import type { Trip } from "@/lib/types";
-import { Thermometer, Zap, Gauge } from "lucide-react";
+import { Thermometer, Zap, Gauge, MapPin, ChevronDown } from "lucide-react";
 import clsx from "clsx";
+import TripMap from "@/components/TripMap";
+import { api } from "@/lib/api";
 
 interface Props {
   trips: Trip[];
@@ -33,7 +36,24 @@ function efficiencyColor(kwh: number | null): string {
   return "text-red-400";
 }
 
+type RouteCache = Record<number, { lat: number; lon: number }[]>;
+
 export default function TripList({ trips, total }: Props) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [routeCache, setRouteCache] = useState<RouteCache>({});
+
+  async function toggleTrip(id: number) {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    if (!routeCache[id]) {
+      const data = await api.trips.route(id).catch(() => null);
+      if (data) setRouteCache((prev) => ({ ...prev, [id]: data.points }));
+    }
+  }
+
   if (!trips.length) {
     return (
       <div className="rounded-2xl bg-[#161b27] border border-white/5 p-6 text-center text-gray-500">
@@ -50,9 +70,10 @@ export default function TripList({ trips, total }: Props) {
       {trips.map((t) => (
         <div
           key={t.id}
-          className="rounded-2xl bg-[#161b27] border border-white/5 p-4"
+          className="rounded-2xl bg-[#161b27] border border-white/5 p-4 cursor-pointer"
+          onClick={() => toggleTrip(t.id)}
         >
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-2">
             <div className="text-sm text-white font-medium">{formatDate(t.started_at)}</div>
             {t.outdoor_temp_c != null && (
               <span className="flex items-center gap-1 text-xs text-gray-500">
@@ -61,6 +82,18 @@ export default function TripList({ trips, total }: Props) {
               </span>
             )}
           </div>
+
+          {/* Location row */}
+          {(t.start_address || t.end_address) && (
+            <div className="flex items-start gap-1.5 mb-3 text-xs text-gray-400">
+              <MapPin size={12} className="text-[#00B0F0] mt-0.5 shrink-0" />
+              <span className="truncate">
+                {t.start_address ?? "Unknown"}
+                <span className="text-gray-600 mx-1">→</span>
+                {t.end_address ?? "Unknown"}
+              </span>
+            </div>
+          )}
 
           {/* Primary metrics row */}
           <div className="grid grid-cols-3 gap-3 text-center">
@@ -104,10 +137,24 @@ export default function TripList({ trips, total }: Props) {
             </div>
           </div>
 
-          {t.duration_min != null && (
-            <div className="text-xs text-gray-600 mt-2 text-right">
-              {formatDuration(t.duration_min)}
-            </div>
+          <div className="flex items-center justify-between mt-2">
+            {t.duration_min != null ? (
+              <span className="text-xs text-gray-600">{formatDuration(t.duration_min)}</span>
+            ) : <span />}
+            <ChevronDown
+              size={14}
+              className={clsx(
+                "text-gray-600 transition-transform",
+                expandedId === t.id && "rotate-180"
+              )}
+            />
+          </div>
+
+          {expandedId === t.id && (
+            <TripMap
+              points={routeCache[t.id] ?? []}
+              mapId={`trip-map-${t.id}`}
+            />
           )}
         </div>
       ))}

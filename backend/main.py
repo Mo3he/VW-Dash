@@ -16,7 +16,7 @@ from config import settings
 from database import Base, engine
 from sqlalchemy import text
 from poller import init_weconnect, poll
-from routers import charging, trips, vehicle, settings_router, import_router
+from routers import charging, trips, vehicle, settings_router, import_router, events_router
 from ws import connect, disconnect
 
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +31,13 @@ def _run_migrations() -> None:
         for stmt in [
             "ALTER TABLE vehicle_snapshots ADD COLUMN battery_temp_c FLOAT",
             "ALTER TABLE charging_sessions ADD COLUMN cost_per_kwh FLOAT",
+            "ALTER TABLE charging_sessions ADD COLUMN kwh_added_real FLOAT",
+            "ALTER TABLE charging_sessions ADD COLUMN avg_power_kw FLOAT",
+            "ALTER TABLE charging_sessions ADD COLUMN latitude FLOAT",
+            "ALTER TABLE charging_sessions ADD COLUMN longitude FLOAT",
+            "ALTER TABLE charging_sessions ADD COLUMN location_name TEXT",
+            "ALTER TABLE trips ADD COLUMN start_address TEXT",
+            "ALTER TABLE trips ADD COLUMN end_address TEXT",
         ]:
             try:
                 conn.execute(text(stmt))
@@ -71,6 +78,7 @@ app.include_router(charging.router)
 app.include_router(trips.router)
 app.include_router(settings_router.router)
 app.include_router(import_router.router)
+app.include_router(events_router.router)
 
 
 @app.websocket("/ws")

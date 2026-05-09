@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Float, Integer, String, Boolean, DateTime
+from sqlalchemy import Float, Integer, String, Boolean, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -55,11 +55,16 @@ class ChargingSession(Base):
     soc_start_pct: Mapped[Optional[float]] = mapped_column(Float)
     soc_end_pct: Mapped[Optional[float]] = mapped_column(Float)
     kwh_added: Mapped[Optional[float]] = mapped_column(Float)
+    kwh_added_real: Mapped[Optional[float]] = mapped_column(Float)
     range_added_km: Mapped[Optional[float]] = mapped_column(Float)
     peak_power_kw: Mapped[Optional[float]] = mapped_column(Float)
+    avg_power_kw: Mapped[Optional[float]] = mapped_column(Float)
     charge_type: Mapped[Optional[str]] = mapped_column(String(16))
     cost: Mapped[Optional[float]] = mapped_column(Float)
     cost_per_kwh: Mapped[Optional[float]] = mapped_column(Float)
+    latitude: Mapped[Optional[float]] = mapped_column(Float)
+    longitude: Mapped[Optional[float]] = mapped_column(Float)
+    location_name: Mapped[Optional[str]] = mapped_column(String(256))
 
 
 class Trip(Base):
@@ -82,3 +87,26 @@ class Trip(Base):
     end_lat: Mapped[Optional[float]] = mapped_column(Float)
     end_lon: Mapped[Optional[float]] = mapped_column(Float)
     outdoor_temp_c: Mapped[Optional[float]] = mapped_column(Float)
+    start_address: Mapped[Optional[str]] = mapped_column(String(256))
+    end_address: Mapped[Optional[str]] = mapped_column(String(256))
+
+
+class TripPoint(Base):
+    """GPS breadcrumb recorded during an active trip."""
+    __tablename__ = "trip_points"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trip_id: Mapped[int] = mapped_column(Integer, index=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime)
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+
+
+class Event(Base):
+    """State-change events emitted by the poller (trip started, charging ended, etc.)."""
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    event_type: Mapped[str] = mapped_column(String(48))
+    detail: Mapped[Optional[str]] = mapped_column(Text)  # JSON string for extra context

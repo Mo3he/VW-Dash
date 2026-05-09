@@ -1,7 +1,11 @@
 import type {
   BatteryHealth,
+  ChargeLocation,
   ChargingSession,
   ChargingStats,
+  EventItem,
+  Journey,
+  PopularRoute,
   Trip,
   TripStats,
   VehicleSnapshot,
@@ -65,14 +69,22 @@ export const api = {
         `/charging/sessions?limit=${limit}&offset=${offset}`
       ),
     stats: (days = 30) => get<ChargingStats>(`/charging/stats?days=${days}`),
+    locations: () => get<ChargeLocation[]>(`/charging/locations`),
     updateSession: (id: number, body: Partial<ChargingSession>) =>
       patch<ChargingSession>(`/charging/sessions/${id}`, body),
   },
   trips: {
-    list: (limit = 20, offset = 0) =>
+    list: (limit = 20, offset = 0, days = 0) =>
       get<{ total: number; trips: Trip[] }>(
-        `/trips?limit=${limit}&offset=${offset}`
+        `/trips?limit=${limit}&offset=${offset}${days > 0 ? `&days=${days}` : ""}`
       ),
     stats: (days = 30) => get<TripStats>(`/trips/stats?days=${days}`),
+    route: (id: number) => get<{ trip_id: number; points: { lat: number; lon: number }[] }>(`/trips/${id}/route`),
+    popular: (limit = 10) => get<PopularRoute[]>(`/trips/popular?limit=${limit}`),
+    journeys: (days = 30) => get<Journey[]>(`/trips/journeys?days=${days}`),
+  },
+  events: {
+    list: (limit = 50, days = 3) =>
+      get<EventItem[]>(`/events?limit=${limit}&days=${days}`),
   },
 };

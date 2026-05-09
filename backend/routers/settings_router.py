@@ -22,6 +22,7 @@ class SettingsUpdate(BaseModel):
     currency_after: bool | None = None
     epa_rated_range_km: float | None = None
     poll_interval_seconds: int | None = None
+    vehicle_name: str | None = None
 
 
 @router.get("")
@@ -35,6 +36,7 @@ def get_settings():
         "currency_after": settings.currency_after,
         "epa_rated_range_km": settings.epa_rated_range_km,
         "poll_interval_seconds": settings.poll_interval_seconds,
+        "vehicle_name": settings.vehicle_name,
     }
 
 
@@ -55,6 +57,7 @@ def update_settings(body: SettingsUpdate):
         currency_after=body.currency_after,
         epa_rated_range_km=body.epa_rated_range_km,
         poll_interval_seconds=body.poll_interval_seconds,
+        vehicle_name=body.vehicle_name,
     )
 
     if credentials_changed:

@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Trip
+from models import Trip, TripPoint
 from config import settings
 
 router = APIRouter(prefix="/api/trips", tags=["trips"])
@@ -14,23 +14,53 @@ router = APIRouter(prefix="/api/trips", tags=["trips"])
 
 @router.get("")
 def list_trips(
-    limit: int = Query(default=20, ge=1, le=200),
+    limit: int = Query(default=20, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
+    days: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    trips = db.scalars(
-        select(Trip)
-        .order_by(Trip.started_at.desc())
-        .limit(limit)
-        .offset(offset)
-    ).all()
-    total = db.scalar(select(func.count()).select_from(Trip))
+    q = select(Trip).order_by(Trip.started_at.desc())
+    if days > 0:
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        q = q.where(Trip.started_at >= since, Trip.ended_at.is_not(None))
+    trips = db.scalars(q.limit(limit).offset(offset)).all()
+    count_q = select(func.count()).select_from(Trip)
+    if days > 0:
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        count_q = count_q.where(Trip.started_at >= since, Trip.ended_at.is_not(None))
+    total = db.scalar(count_q)
     return {"total": total, "trips": [_trip_to_dict(t) for t in trips]}
+
+
+@router.get("/{trip_id}/route")
+def trip_route(trip_id: int, db: Session = Depends(get_db)):
+    """Ordered GPS breadcrumbs for a single trip, including start/end from the Trip row."""
+    trip = db.get(Trip, trip_id)
+    if trip is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    points = db.scalars(
+        select(TripPoint)
+        .where(TripPoint.trip_id == trip_id)
+        .order_by(TripPoint.recorded_at)
+    ).all()
+
+    coords = [{"lat": p.latitude, "lon": p.longitude} for p in points]
+
+    # If no mid-trip breadcrumbs, fall back to start/end points only
+    if not coords:
+        if trip.start_lat and trip.start_lon:
+            coords.append({"lat": trip.start_lat, "lon": trip.start_lon})
+        if trip.end_lat and trip.end_lon:
+            coords.append({"lat": trip.end_lat, "lon": trip.end_lon})
+
+    return {"trip_id": trip_id, "points": coords}
 
 
 @router.get("/stats")
 def trip_stats(
-    days: int = Query(default=30, ge=1, le=365),
+    days: int = Query(default=30, ge=1, le=3650),
     db: Session = Depends(get_db),
 ):
     since = datetime.now(timezone.utc) - timedelta(days=days)
@@ -84,6 +114,82 @@ def trip_stats(
     }
 
 
+@router.get("/popular")
+def popular_routes(
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """Most frequent origin→destination pairs (requires geocoded addresses)."""
+    trips = db.scalars(
+        select(Trip).where(
+            Trip.start_address.is_not(None),
+            Trip.end_address.is_not(None),
+            Trip.ended_at.is_not(None),
+        )
+    ).all()
+
+    route_map: dict[str, dict] = {}
+    for t in trips:
+        key = f"{t.start_address}||{t.end_address}"
+        if key not in route_map:
+            route_map[key] = {
+                "start": t.start_address,
+                "end": t.end_address,
+                "count": 0,
+                "avg_distance_km": 0.0,
+                "distances": [],
+            }
+        route_map[key]["count"] += 1
+        if t.distance_km:
+            route_map[key]["distances"].append(t.distance_km)
+
+    results = []
+    for r in route_map.values():
+        dists = r.pop("distances")
+        r["avg_distance_km"] = round(sum(dists) / len(dists), 1) if dists else None
+        results.append(r)
+
+    results.sort(key=lambda x: x["count"], reverse=True)
+    return results[:limit]
+
+
+@router.get("/journeys")
+def list_journeys(
+    days: int = Query(default=30, ge=1, le=3650),
+    db: Session = Depends(get_db),
+):
+    """Group completed trips into day-level journeys."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    trips = db.scalars(
+        select(Trip)
+        .where(Trip.started_at >= since, Trip.ended_at.is_not(None))
+        .order_by(Trip.started_at.desc())
+    ).all()
+
+    # Group by calendar date (UTC)
+    from collections import defaultdict
+    day_map: dict[str, list] = defaultdict(list)
+    for t in trips:
+        day = t.started_at.strftime("%Y-%m-%d")
+        day_map[day].append(t)
+
+    journeys = []
+    for day, day_trips in sorted(day_map.items(), reverse=True):
+        total_km = sum(t.distance_km or 0 for t in day_trips)
+        total_kwh = sum(t.kwh_used or 0 for t in day_trips)
+        journeys.append({
+            "date": day,
+            "trip_count": len(day_trips),
+            "total_km": round(total_km, 1),
+            "total_kwh": round(total_kwh, 2),
+            "start_address": day_trips[-1].start_address,  # earliest trip
+            "end_address": day_trips[0].end_address,       # latest trip
+            "trips": [_trip_to_dict(t) for t in day_trips],
+        })
+
+    return journeys
+
+
 def _trip_to_dict(t: Trip) -> dict:
     duration_min = None
     if t.started_at and t.ended_at:
@@ -106,4 +212,6 @@ def _trip_to_dict(t: Trip) -> dict:
         "end_lon": t.end_lon,
         "outdoor_temp_c": t.outdoor_temp_c,
         "outdoor_temp_f": round(t.outdoor_temp_c * 9 / 5 + 32, 1) if t.outdoor_temp_c else None,
+        "start_address": t.start_address,
+        "end_address": t.end_address,
     }

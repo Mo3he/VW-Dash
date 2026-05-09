@@ -11,6 +11,7 @@ interface ServerSettings {
   currency_after: boolean;
   epa_rated_range_km: number;
   poll_interval_seconds: number;
+  vehicle_name: string;
 }
 
 interface FormState {
@@ -22,6 +23,7 @@ interface FormState {
   currency_after: boolean;
   epa_rated_range_km: string;
   poll_interval_seconds: string;
+  vehicle_name: string;
 }
 
 interface Props {
@@ -38,6 +40,7 @@ function toForm(s: ServerSettings | null): FormState {
     currency_after: s?.currency_after ?? false,
     epa_rated_range_km: String(s?.epa_rated_range_km ?? 410),
     poll_interval_seconds: String(s?.poll_interval_seconds ?? 300),
+    vehicle_name: s?.vehicle_name ?? "ID.4",
   };
 }
 
@@ -45,6 +48,40 @@ interface ImportResult {
   snapshots: number;
   trips: number;
   charging_sessions: number;
+}
+
+function GeocodeBackfill() {
+  const [started, setStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setError(null);
+    try {
+      const res = await fetch("/api/import/geocode-backfill", { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      setStarted(true);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  return (
+    <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-3">
+      <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">Geocoding</div>
+      <p className="text-xs text-gray-500">
+        Fill in missing addresses for imported trips and charging sessions. Runs in the background — check Trips/Journeys in a few minutes.
+      </p>
+      <button
+        type="button"
+        onClick={run}
+        disabled={started}
+        className="flex items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 text-white font-medium py-2.5 text-sm hover:bg-white/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {started ? "Running in background…" : "Geocode missing addresses"}
+      </button>
+      {error && <div className="text-sm text-red-400 text-center">{error}</div>}
+    </div>
+  );
 }
 
 export default function SettingsForm({ initial }: Props) {
@@ -97,6 +134,7 @@ export default function SettingsForm({ initial }: Props) {
       currency_after: form.currency_after,
       epa_rated_range_km: Number(form.epa_rated_range_km),
       poll_interval_seconds: Number(form.poll_interval_seconds),
+      vehicle_name: form.vehicle_name,
     };
 
     if (form.vw_username) body.vw_username = form.vw_username;
@@ -180,6 +218,18 @@ export default function SettingsForm({ initial }: Props) {
             maxLength={17}
             className={`${inputClass} font-mono`}
           />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Vehicle name</span>
+          <input
+            type="text"
+            value={form.vehicle_name}
+            onChange={(e) => set("vehicle_name", e.target.value)}
+            placeholder="e.g. ID.4, ID.3, ID.7"
+            className={inputClass}
+          />
+          <span className="text-xs text-gray-600">Shown in the top bar</span>
         </label>
       </div>
 
@@ -324,12 +374,16 @@ export default function SettingsForm({ initial }: Props) {
         {importResult && (
           <div className="text-sm text-green-400 text-center">
             Imported {importResult.snapshots} snapshots · {importResult.trips} trips · {importResult.charging_sessions} charging sessions
+            <div className="text-xs text-gray-500 mt-1">Geocoding addresses in background — check Trips/Journeys in a few minutes.</div>
           </div>
         )}
         {importError && (
           <div className="text-sm text-red-400 text-center">{importError}</div>
         )}
       </div>
+
+      {/* Geocoding */}
+      <GeocodeBackfill />
     </form>
   );
 }

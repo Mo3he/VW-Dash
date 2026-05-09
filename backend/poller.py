@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database import SessionLocal
-from models import ChargingSession, Trip, VehicleSnapshot
+from geocoder import reverse_geocode
+from models import ChargingSession, Event, Trip, TripPoint, VehicleSnapshot
 from ws import broadcast
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,14 @@ _active_charging_session_id: int | None = None
 _active_trip_id: int | None = None
 _prev_odometer: float | None = None
 _trip_start_odometer: float | None = None
+_charging_power_samples: list[float] = []
+_prev_climatisation_state: str | None = None
+_prev_locked: bool | None = None
+_prev_plug_connected: bool | None = None
+
+
+def _emit_event(db: Session, event_type: str, detail: str | None = None) -> None:
+    db.add(Event(occurred_at=datetime.now(timezone.utc), event_type=event_type, detail=detail))
 
 
 def init_weconnect() -> None:
@@ -189,7 +198,7 @@ def _extract_snapshot(vehicle) -> dict:
 
 
 def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
-    global _prev_charging_state, _active_charging_session_id, _prev_soc
+    global _prev_charging_state, _active_charging_session_id, _prev_soc, _charging_power_samples
 
     state = snap.charging_state
     is_charging = state == "CHARGING"
@@ -200,11 +209,26 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
             started_at=snap.recorded_at,
             soc_start_pct=snap.soc_pct,
             charge_type=snap.charge_type,
+            latitude=snap.latitude,
+            longitude=snap.longitude,
         )
         db.add(session)
         db.flush()
         _active_charging_session_id = session.id
+        _charging_power_samples = []
+        if snap.charge_power_kw and snap.charge_power_kw > 0:
+            _charging_power_samples.append(snap.charge_power_kw)
+        _emit_event(db, "charging_started", f'{{"soc_pct": {snap.soc_pct}}}')
         logger.info("Charging session %d started (SOC %.0f%%)", session.id, snap.soc_pct or 0)
+
+    elif is_charging and _active_charging_session_id is not None:
+        # Mid-session: accumulate power samples and update peak
+        if snap.charge_power_kw and snap.charge_power_kw > 0:
+            _charging_power_samples.append(snap.charge_power_kw)
+        session = db.get(ChargingSession, _active_charging_session_id)
+        if session and snap.charge_power_kw:
+            if session.peak_power_kw is None or snap.charge_power_kw > session.peak_power_kw:
+                session.peak_power_kw = snap.charge_power_kw
 
     elif not is_charging and _active_charging_session_id is not None:
         # Session ended
@@ -214,16 +238,24 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
             session.soc_end_pct = snap.soc_pct
             if session.soc_start_pct and snap.soc_pct:
                 delta_soc = snap.soc_pct - session.soc_start_pct
-                # Rough kWh estimate: ID.4 usable capacity ~77 kWh
                 session.kwh_added = round(delta_soc / 100 * 77.0, 2)
                 session.cost_per_kwh = settings.electricity_rate_per_kwh
                 session.cost = round(session.kwh_added * settings.electricity_rate_per_kwh, 2)
-                if snap.range_km and session.soc_start_pct:
+                if snap.range_km and snap.soc_pct:
                     session.range_added_km = round(
                         (snap.range_km / snap.soc_pct) * delta_soc, 1
-                    ) if snap.soc_pct else None
+                    )
+            if _charging_power_samples:
+                session.avg_power_kw = round(
+                    sum(_charging_power_samples) / len(_charging_power_samples), 2
+                )
+            # Geocode charging location
+            if session.latitude and session.longitude:
+                session.location_name = reverse_geocode(session.latitude, session.longitude)
+            _emit_event(db, "charging_ended", f'{{"soc_pct": {snap.soc_pct}, "kwh_added": {session.kwh_added}}}')
             logger.info("Charging session %d ended (SOC %.0f%%)", session.id, snap.soc_pct or 0)
         _active_charging_session_id = None
+        _charging_power_samples = []
 
     _prev_charging_state = state
     _prev_soc = snap.soc_pct
@@ -251,6 +283,17 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
         db.flush()
         _active_trip_id = trip.id
         _trip_start_odometer = _prev_odometer
+        _emit_event(db, "trip_started", f'{{"soc_pct": {snap.soc_pct}}}')
+
+    elif is_moving and _active_trip_id is not None:
+        # Mid-trip: record GPS breadcrumb
+        if snap.latitude and snap.longitude:
+            db.add(TripPoint(
+                trip_id=_active_trip_id,
+                recorded_at=snap.recorded_at,
+                latitude=snap.latitude,
+                longitude=snap.longitude,
+            ))
 
     elif not is_moving and _active_trip_id is not None:
         trip = db.get(Trip, _active_trip_id)
@@ -271,11 +314,42 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
                 trip.kwh_used = round(kwh, 2)
                 if dist and dist > 0:
                     trip.efficiency_kwh_100km = round(kwh / dist * 100, 1)
+            # Geocode start and end addresses
+            if trip.start_lat and trip.start_lon:
+                trip.start_address = reverse_geocode(trip.start_lat, trip.start_lon)
+            if trip.end_lat and trip.end_lon:
+                trip.end_address = reverse_geocode(trip.end_lat, trip.end_lon)
+            _emit_event(db, "trip_ended", f'{{"distance_km": {trip.distance_km}, "kwh_used": {trip.kwh_used}}}')
             logger.info("Trip %d ended (%.1f km)", trip.id, trip.distance_km or 0)
         _active_trip_id = None
         _trip_start_odometer = None
 
     _prev_odometer = odometer
+
+
+def _update_misc_events(db: Session, snap: VehicleSnapshot) -> None:
+    """Emit events for connector, climatisation, and lock state changes."""
+    global _prev_climatisation_state, _prev_locked, _prev_plug_connected
+
+    if _prev_plug_connected is not None and snap.plug_connected != _prev_plug_connected:
+        event_type = "connector_connected" if snap.plug_connected else "connector_disconnected"
+        _emit_event(db, event_type)
+
+    clim = snap.climatisation_state
+    if _prev_climatisation_state is not None and clim != _prev_climatisation_state:
+        prev = (_prev_climatisation_state or "").upper()
+        curr = (clim or "").upper()
+        if curr not in ("OFF", "OFF_BY_REQUEST", "") and prev in ("OFF", "OFF_BY_REQUEST", ""):
+            _emit_event(db, "climatisation_started")
+        elif curr in ("OFF", "OFF_BY_REQUEST", "") and prev not in ("OFF", "OFF_BY_REQUEST", ""):
+            _emit_event(db, "climatisation_stopped")
+
+    if _prev_locked is not None and snap.locked != _prev_locked:
+        _emit_event(db, "vehicle_locked" if snap.locked else "vehicle_unlocked")
+
+    _prev_plug_connected = snap.plug_connected
+    _prev_climatisation_state = snap.climatisation_state
+    _prev_locked = snap.locked
 
 
 def poll() -> None:
@@ -307,6 +381,7 @@ def poll() -> None:
         db.add(snap)
         _update_charging_session(db, snap)
         _update_trip(db, snap)
+        _update_misc_events(db, snap)
         db.commit()
         db.refresh(snap)
     except Exception as exc:

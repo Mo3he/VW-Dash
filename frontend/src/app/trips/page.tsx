@@ -6,17 +6,18 @@ import StatusCard from "@/components/StatusCard";
 import TripList from "./TripList";
 import TempEfficiency from "./TempEfficiency";
 import EfficiencyChart from "./EfficiencyChart";
+import PeriodSelector from "@/components/PeriodSelector";
 
-const PERIOD_OPTIONS = [
-  { label: "30d", days: 30 },
-  { label: "90d", days: 90 },
-  { label: "1y", days: 365 },
-];
 const PAGE_SIZE = 20;
+
+function periodLabel(days: number) {
+  return days >= 3650 ? "all time" : `last ${days} days`;
+}
 
 export default function TripsPage() {
   const [stats, setStats] = useState<TripStats | null>(null);
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [chartTrips, setChartTrips] = useState<Trip[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [statsDays, setStatsDays] = useState(30);
@@ -29,7 +30,9 @@ export default function TripsPage() {
   }, [statsDays]);
 
   const loadTrips = useCallback(async (off: number, append: boolean) => {
-    const data = await api.trips.list(PAGE_SIZE, off).catch(() => ({ total: 0, trips: [] as Trip[] }));
+    const data = await api.trips
+      .list(PAGE_SIZE, off, statsDays)
+      .catch(() => ({ total: 0, trips: [] as Trip[] }));
     if (append) {
       setTrips((prev) => [...prev, ...data.trips]);
     } else {
@@ -37,12 +40,21 @@ export default function TripsPage() {
     }
     setTotal(data.total);
     setOffset(off + data.trips.length);
-  }, []);
+  }, [statsDays]);
+
+  const loadChartTrips = useCallback(async () => {
+    const data = await api.trips
+      .list(1000, 0, statsDays)
+      .catch(() => ({ trips: [] as Trip[] }));
+    setChartTrips(data.trips);
+  }, [statsDays]);
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadStats(), loadTrips(0, false)]).finally(() => setLoading(false));
-  }, [loadStats, loadTrips]);
+    Promise.all([loadStats(), loadTrips(0, false), loadChartTrips()]).finally(
+      () => setLoading(false)
+    );
+  }, [loadStats, loadTrips, loadChartTrips]);
 
   async function handleLoadMore() {
     setLoadingMore(true);
@@ -68,39 +80,25 @@ export default function TripsPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-white">Trips</h1>
-        <div className="flex gap-1">
-          {PERIOD_OPTIONS.map((opt) => (
-            <button
-              key={opt.days}
-              onClick={() => setStatsDays(opt.days)}
-              className={`text-xs px-2.5 py-1 rounded-lg transition ${
-                statsDays === opt.days
-                  ? "bg-[#00B0F0]/20 text-[#00B0F0] font-medium"
-                  : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <PeriodSelector value={statsDays} onChange={setStatsDays} />
       </div>
 
       {stats && (
         <>
           <div className="grid grid-cols-2 gap-3">
             <StatusCard
-              label={`Trips (${statsDays}d)`}
+              label={`Trips (${periodLabel(statsDays)})`}
               value={stats.trip_count}
             />
             <StatusCard
               label="Distance"
               value={`${stats.total_km.toLocaleString("sv-SE")} km`}
-              sub={`last ${statsDays} days`}
+              sub={periodLabel(statsDays)}
             />
             <StatusCard
               label="Energy used"
               value={`${stats.total_kwh} kWh`}
-              sub={`last ${statsDays} days`}
+              sub={periodLabel(statsDays)}
             />
             <StatusCard
               label="Avg efficiency"
@@ -120,7 +118,7 @@ export default function TripsPage() {
             />
           </div>
 
-          {trips.length > 1 && <EfficiencyChart trips={trips} />}
+          {chartTrips.length > 1 && <EfficiencyChart trips={chartTrips} />}
 
           {Object.keys(stats.temp_efficiency).length > 0 && (
             <TempEfficiency data={stats.temp_efficiency} />

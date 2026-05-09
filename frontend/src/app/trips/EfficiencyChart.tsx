@@ -14,14 +14,21 @@ interface Props {
   trips: Trip[];
 }
 
-export default function EfficiencyChart({ trips }: Props) {
-  // Show trips in chronological order, limit to most recent 50 for readability
-  const ordered = [...trips]
-    .filter((t) => t.efficiency_kwh_100km != null && t.distance_km != null && t.distance_km > 0.5)
-    .reverse()
-    .slice(-50);
+function downsample<T>(arr: T[], max: number): T[] {
+  if (arr.length <= max) return arr;
+  const step = arr.length / max;
+  return Array.from({ length: max }, (_, i) => arr[Math.round(i * step)]);
+}
 
-  if (ordered.length < 2) return null;
+export default function EfficiencyChart({ trips }: Props) {
+  const filtered = [...trips]
+    .filter((t) => t.efficiency_kwh_100km != null && t.distance_km != null && t.distance_km > 0.5)
+    .reverse(); // chronological order
+
+  if (filtered.length < 2) return null;
+
+  // Downsample to ≤100 points spread evenly across the full period
+  const ordered = downsample(filtered, 100);
 
   const points = ordered.map((t) => ({
     date: new Date(t.started_at).toLocaleDateString([], { month: "short", day: "numeric" }),
