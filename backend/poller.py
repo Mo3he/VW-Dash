@@ -164,7 +164,7 @@ def _extract_snapshot(vehicle) -> dict:
                 data["locked"] = str(overall).lower() == "safe"
 
         # Odometer  (domain: measurements)
-        om = _domain(vehicle, "measurements", "odometerMeasurement")
+        om = _domain(vehicle, "measurements", "odometerStatus")
         if om:
             data["odometer_km"] = _safe_float(_val(om, "odometer"))
 

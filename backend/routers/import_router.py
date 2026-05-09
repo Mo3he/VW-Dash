@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 
-from fastapi import APIRouter, Form, UploadFile
+from fastapi import APIRouter, Form, HTTPException, UploadFile
 
 from config import settings
 from import_vwsfriend import import_from_backup
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/import", tags=["import"])
 
 
@@ -29,6 +31,9 @@ async def import_vwsfriend(
             battery_kwh=battery_kwh,
             wipe=wipe,
         )
+    except Exception as exc:
+        logger.exception("Import failed")
+        raise HTTPException(status_code=500, detail=str(exc))
     finally:
         os.unlink(tmp_path)
 
