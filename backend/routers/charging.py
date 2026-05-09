@@ -19,6 +19,7 @@ class SessionUpdate(BaseModel):
     soc_end_pct: Optional[float] = None
     kwh_added: Optional[float] = None
     cost: Optional[float] = None
+    cost_per_kwh: Optional[float] = None
     charge_type: Optional[str] = None
     peak_power_kw: Optional[float] = None
 
@@ -66,7 +67,14 @@ def update_session(session_id: int, body: SessionUpdate, db: Session = Depends(g
         session.soc_end_pct = body.soc_end_pct
     if body.kwh_added is not None:
         session.kwh_added = body.kwh_added
-        session.cost = round(body.kwh_added * settings.electricity_rate_per_kwh, 2)
+        rate = body.cost_per_kwh if body.cost_per_kwh is not None else (
+            session.cost_per_kwh if session.cost_per_kwh is not None else settings.electricity_rate_per_kwh
+        )
+        session.cost = round(body.kwh_added * rate, 2)
+    if body.cost_per_kwh is not None:
+        session.cost_per_kwh = body.cost_per_kwh
+        if session.kwh_added is not None:
+            session.cost = round(session.kwh_added * body.cost_per_kwh, 2)
     if body.cost is not None:
         session.cost = body.cost
     if body.charge_type is not None:
@@ -128,6 +136,7 @@ def _session_to_dict(s: ChargingSession) -> dict:
         "peak_power_kw": s.peak_power_kw,
         "charge_type": s.charge_type,
         "cost": s.cost,
+        "cost_per_kwh": s.cost_per_kwh,
         "currency_symbol": settings.currency_symbol,
         "currency_after": settings.currency_after,
     }

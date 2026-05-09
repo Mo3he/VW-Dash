@@ -1,6 +1,12 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+
+# Ensure pg_restore is findable on macOS when libpq is keg-only
+_LIBPQ_BIN = "/opt/homebrew/opt/libpq/bin"
+if os.path.isdir(_LIBPQ_BIN) and _LIBPQ_BIN not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = _LIBPQ_BIN + ":" + os.environ.get("PATH", "")
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -24,6 +30,7 @@ def _run_migrations() -> None:
     with engine.connect() as conn:
         for stmt in [
             "ALTER TABLE vehicle_snapshots ADD COLUMN battery_temp_c FLOAT",
+            "ALTER TABLE charging_sessions ADD COLUMN cost_per_kwh FLOAT",
         ]:
             try:
                 conn.execute(text(stmt))

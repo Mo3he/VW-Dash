@@ -59,6 +59,7 @@ class ChargingSession(Base):
     peak_power_kw: Mapped[Optional[float]] = mapped_column(Float)
     charge_type: Mapped[Optional[str]] = mapped_column(String(16))
     cost: Mapped[Optional[float]] = mapped_column(Float)
+    cost_per_kwh: Mapped[Optional[float]] = mapped_column(Float)
 
 
 class Trip(Base):

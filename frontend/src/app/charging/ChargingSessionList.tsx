@@ -16,6 +16,7 @@ interface EditState {
   soc_end_pct: string;
   kwh_added: string;
   cost: string;
+  cost_per_kwh: string;
   charge_type: string;
   peak_power_kw: string;
 }
@@ -43,6 +44,7 @@ function sessionToEditState(s: ChargingSession): EditState {
     soc_end_pct: s.soc_end_pct?.toString() ?? "",
     kwh_added: s.kwh_added?.toString() ?? "",
     cost: s.cost?.toString() ?? "",
+    cost_per_kwh: s.cost_per_kwh?.toString() ?? "",
     charge_type: s.charge_type ?? "AC",
     peak_power_kw: s.peak_power_kw?.toString() ?? "",
   };
@@ -75,6 +77,7 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
       if (editState.soc_start_pct !== "") body.soc_start_pct = parseFloat(editState.soc_start_pct);
       if (editState.soc_end_pct !== "") body.soc_end_pct = parseFloat(editState.soc_end_pct);
       if (editState.kwh_added !== "") body.kwh_added = parseFloat(editState.kwh_added);
+      if (editState.cost_per_kwh !== "") body.cost_per_kwh = parseFloat(editState.cost_per_kwh);
       if (editState.cost !== "") body.cost = parseFloat(editState.cost);
       if (editState.charge_type) body.charge_type = editState.charge_type;
       if (editState.peak_power_kw !== "") body.peak_power_kw = parseFloat(editState.peak_power_kw);
@@ -187,6 +190,16 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                     />
                   </label>
                   <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Cost per kWh</span>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={editState.cost_per_kwh}
+                      onChange={(e) => setEditState({ ...editState, cost_per_kwh: e.target.value })}
+                      className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
                     <span className="text-xs text-gray-500">Cost</span>
                     <input
                       type="number"
@@ -250,7 +263,7 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 text-center mt-3">
+                <div className="grid grid-cols-3 gap-3 text-center mt-3">
                   <div>
                     <div className="text-sm font-medium text-white">
                       {s.range_added_km != null ? `${s.range_added_km} km` : "—"}
@@ -262,6 +275,16 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                       {s.peak_power_kw != null ? `${s.peak_power_kw} kW` : "—"}
                     </div>
                     <div className="text-xs text-gray-500 mt-0.5">Peak power</div>
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-white">
+                      {s.cost_per_kwh != null
+                        ? s.currency_after
+                          ? `${s.cost_per_kwh} ${s.currency_symbol}`
+                          : `${s.currency_symbol}${s.cost_per_kwh}`
+                        : "—"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">per kWh</div>
                   </div>
                 </div>
 

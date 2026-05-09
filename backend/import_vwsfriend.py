@@ -156,7 +156,7 @@ def _import_snapshot_rows(rows: list[dict], session: Session) -> int:
     return count
 
 
-def _import_trip_rows(rows: list[dict], battery_rows: list[dict], session: Session) -> int:
+def _import_trip_rows(rows: list[dict], battery_rows: list[dict], session: Session, battery_kwh: float = 77.0) -> int:
     times, socs = _build_battery_index(battery_rows)
     count = 0
     for r in rows:
@@ -170,13 +170,33 @@ def _import_trip_rows(rows: list[dict], battery_rows: list[dict], session: Sessi
         if start_km is not None and end_km is not None and end_km > start_km:
             distance_km = float(end_km - start_km)
             distance_miles = round(distance_km * 0.621371, 1)
+
+        soc_start = _soc_at(times, socs, started, before=True)
+        soc_end = _soc_at(times, socs, ended, before=False) if ended else None
+
+        kwh_used = None
+        efficiency = None
+        if soc_start is not None and soc_end is not None and soc_start > soc_end:
+            kwh_used = round((soc_start - soc_end) / 100.0 * battery_kwh, 2)
+            if distance_km and distance_km > 0:
+                efficiency = round(kwh_used / distance_km * 100, 1)
+
+        avg_speed = None
+        if distance_km and ended:
+            duration_h = (ended - started).total_seconds() / 3600
+            if duration_h > 0:
+                avg_speed = round(distance_km / duration_h, 1)
+
         session.add(Trip(
             started_at=started,
             ended_at=ended,
             distance_km=distance_km,
             distance_miles=distance_miles,
-            soc_start_pct=_soc_at(times, socs, started, before=True),
-            soc_end_pct=_soc_at(times, socs, ended, before=False) if ended else None,
+            soc_start_pct=soc_start,
+            soc_end_pct=soc_end,
+            kwh_used=kwh_used,
+            efficiency_kwh_100km=efficiency,
+            avg_speed_kmh=avg_speed,
             start_lat=_float(r.get("start_position_latitude")),
             start_lon=_float(r.get("start_position_longitude")),
             end_lat=_float(r.get("destination_position_latitude")),
@@ -187,7 +207,13 @@ def _import_trip_rows(rows: list[dict], battery_rows: list[dict], session: Sessi
     return count
 
 
-def _import_charging_rows(rows: list[dict], session: Session, battery_kwh: float) -> int:
+def _import_charging_rows(
+    rows: list[dict],
+    session: Session,
+    battery_kwh: float,
+    epa_range_km: float = 410.0,
+    electricity_rate: float = 0.13,
+) -> int:
     count = 0
     for r in rows:
         started = _ts(r.get("started"))
@@ -199,14 +225,26 @@ def _import_charging_rows(rows: list[dict], session: Session, battery_kwh: float
         kwh = _float(r.get("realCharged_kWh"))
         if kwh is None and start_soc is not None and end_soc is not None and end_soc > start_soc:
             kwh = round((end_soc - start_soc) / 100 * battery_kwh, 2)
+
+        range_added = None
+        if start_soc is not None and end_soc is not None and end_soc > start_soc:
+            range_added = round((end_soc - start_soc) / 100.0 * epa_range_km, 1)
+
         cost_ct = _int(r.get("realCost_ct"))
+        price_ct = _float(r.get("pricePerKwh_ct"))
         cost: float | None = None
-        if cost_ct:
+        rate_used: float | None = None
+        if cost_ct is not None:
             cost = round(cost_ct / 100, 2)
-        else:
-            price_ct = _float(r.get("pricePerKwh_ct"))
-            if price_ct and kwh:
-                cost = round(price_ct * kwh / 100, 2)
+            if kwh and kwh > 0:
+                rate_used = round(cost / kwh, 4)
+        elif price_ct is not None and kwh:
+            rate_used = price_ct / 100
+            cost = round(kwh * rate_used, 2)
+        elif kwh:
+            rate_used = electricity_rate
+            cost = round(kwh * electricity_rate, 2)
+
         acdc = (r.get("acdc") or "").upper() or None
         session.add(ChargingSession(
             started_at=started,
@@ -214,10 +252,11 @@ def _import_charging_rows(rows: list[dict], session: Session, battery_kwh: float
             soc_start_pct=float(start_soc) if start_soc is not None else None,
             soc_end_pct=float(end_soc) if end_soc is not None else None,
             kwh_added=kwh,
-            range_added_km=None,
+            range_added_km=range_added,
             peak_power_kw=_float(r.get("maximumChargePower_kW")),
             charge_type=acdc if acdc else None,
             cost=cost,
+            cost_per_kwh=rate_used,
         ))
         count += 1
     session.flush()

@@ -35,6 +35,7 @@ export interface ChargingSession {
   peak_power_kw: number | null;
   charge_type: string | null;
   cost: number | null;
+  cost_per_kwh: number | null;
   currency_symbol: string;
   currency_after: boolean;
 }

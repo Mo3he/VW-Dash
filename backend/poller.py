@@ -26,6 +26,7 @@ _prev_soc: float | None = None
 _active_charging_session_id: int | None = None
 _active_trip_id: int | None = None
 _prev_odometer: float | None = None
+_trip_start_odometer: float | None = None
 
 
 def init_weconnect() -> None:
@@ -215,6 +216,7 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
                 delta_soc = snap.soc_pct - session.soc_start_pct
                 # Rough kWh estimate: ID.4 usable capacity ~77 kWh
                 session.kwh_added = round(delta_soc / 100 * 77.0, 2)
+                session.cost_per_kwh = settings.electricity_rate_per_kwh
                 session.cost = round(session.kwh_added * settings.electricity_rate_per_kwh, 2)
                 if snap.range_km and session.soc_start_pct:
                     session.range_added_km = round(
@@ -228,7 +230,7 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
 
 
 def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
-    global _active_trip_id, _prev_odometer
+    global _active_trip_id, _prev_odometer, _trip_start_odometer
 
     odometer = snap.odometer_km
     charging = snap.charging_state == "CHARGING"
@@ -248,24 +250,30 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
         db.add(trip)
         db.flush()
         _active_trip_id = trip.id
+        _trip_start_odometer = _prev_odometer
 
     elif not is_moving and _active_trip_id is not None:
         trip = db.get(Trip, _active_trip_id)
-        if trip and odometer and _prev_odometer:
+        if trip and odometer and _trip_start_odometer:
             trip.ended_at = snap.recorded_at
             trip.soc_end_pct = snap.soc_pct
             trip.end_lat = snap.latitude
             trip.end_lon = snap.longitude
-            dist = odometer - _prev_odometer
-            trip.distance_km = round(dist, 2)
-            trip.distance_miles = round(dist * 0.621371, 2)
-            if trip.soc_start_pct and snap.soc_pct:
+            dist = odometer - _trip_start_odometer
+            if dist > 0:
+                trip.distance_km = round(dist, 2)
+                trip.distance_miles = round(dist * 0.621371, 2)
+                duration_h = (snap.recorded_at - trip.started_at).total_seconds() / 3600
+                if duration_h > 0:
+                    trip.avg_speed_kmh = round(dist / duration_h, 1)
+            if trip.soc_start_pct and snap.soc_pct and trip.soc_start_pct > snap.soc_pct:
                 kwh = (trip.soc_start_pct - snap.soc_pct) / 100 * 77.0
                 trip.kwh_used = round(kwh, 2)
-                if dist > 0:
+                if dist and dist > 0:
                     trip.efficiency_kwh_100km = round(kwh / dist * 100, 1)
             logger.info("Trip %d ended (%.1f km)", trip.id, trip.distance_km or 0)
         _active_trip_id = None
+        _trip_start_odometer = None
 
     _prev_odometer = odometer
 
