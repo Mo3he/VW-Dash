@@ -5,9 +5,9 @@ cd /app/backend
 uvicorn main:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
-PORT=3000 HOSTNAME=0.0.0.0 node /app/frontend/server.js &
+node /app/frontend/proxy-server.js &
 FRONTEND_PID=$!
 
-echo "VW-Dash running — dashboard :3000  API :8000"
+echo "VW-Dash running on :3000"
 
 wait $BACKEND_PID $FRONTEND_PID

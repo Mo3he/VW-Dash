@@ -6,4 +6,3 @@ services:
       - ./data:/app/data
     ports:
       - "3000:3000"
-      - "8000:8000"

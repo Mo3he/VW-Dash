@@ -22,16 +22,17 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 
-# Next.js standalone bundle
+# Next.js standalone bundle + proxy server
 COPY --from=frontend-builder /build/.next/standalone /app/frontend
 COPY --from=frontend-builder /build/.next/static     /app/frontend/.next/static
 COPY --from=frontend-builder /build/public           /app/frontend/public
+COPY frontend/proxy-server.js                        /app/frontend/proxy-server.js
 
 RUN mkdir -p /app/data
 
 COPY entrypoint.sh /app/
 RUN chmod +x /app/entrypoint.sh
 
-EXPOSE 3000 8000
+EXPOSE 3000
 WORKDIR /app
 CMD ["/app/entrypoint.sh"]

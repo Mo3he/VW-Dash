@@ -24,7 +24,7 @@ class SettingsUpdate(BaseModel):
     poll_interval_seconds: int | None = None
 
 
-@router.get("/")
+@router.get("")
 def get_settings():
     return {
         "vw_username": settings.vw_username,
@@ -38,7 +38,7 @@ def get_settings():
     }
 
 
-@router.patch("/")
+@router.patch("")
 def update_settings(body: SettingsUpdate):
     credentials_changed = any([
         body.vw_username is not None,

@@ -29,7 +29,7 @@ Open **http://localhost:3000**, go to **Settings**, and enter your VW WeConnect 
 
 Data is persisted in a `./data/` folder next to the compose file.
 
-> The dashboard runs on port **3000** and the API on port **8000** (used by the live status WebSocket — you don't need to open it directly).
+> Only port **3000** needs to be exposed. The WebSocket for live status is proxied through it automatically.
 
 ## Quick start (local dev)
 
