@@ -71,7 +71,7 @@ export const api = {
   trips: {
     list: (limit = 20, offset = 0) =>
       get<{ total: number; trips: Trip[] }>(
-        `/trips/?limit=${limit}&offset=${offset}`
+        `/trips?limit=${limit}&offset=${offset}`
       ),
     stats: (days = 30) => get<TripStats>(`/trips/stats?days=${days}`),
   },
