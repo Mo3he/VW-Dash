@@ -41,7 +41,7 @@ def pg_copy(container: str, table: str, columns: str) -> list[dict]:
 def pg_restore_copy(backup_path: str, table: str) -> list[dict]:
     """Extract all rows from a table using pg_restore (no running DB needed)."""
     result = subprocess.run(
-        ["pg_restore", "--data-only", f"--table={table}", backup_path],
+        ["pg_restore", "--data-only", f"--table={table}", "-f", "-", backup_path],
         capture_output=True, text=True,
     )
     # pg_restore exits non-zero for harmless warnings — ignore exit code,
