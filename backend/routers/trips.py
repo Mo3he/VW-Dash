@@ -12,7 +12,7 @@ from config import settings
 router = APIRouter(prefix="/api/trips", tags=["trips"])
 
 
-@router.get("/")
+@router.get("")
 def list_trips(
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),

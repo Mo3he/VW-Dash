@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="VW Dash", lifespan=lifespan)
+app = FastAPI(title="VW Dash", lifespan=lifespan, redirect_slashes=False)
 
 app.add_middleware(
     CORSMiddleware,
