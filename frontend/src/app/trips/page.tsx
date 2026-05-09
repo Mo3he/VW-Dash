@@ -1,41 +1,106 @@
+"use client";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
+import type { Trip, TripStats } from "@/lib/types";
 import StatusCard from "@/components/StatusCard";
 import TripList from "./TripList";
 import TempEfficiency from "./TempEfficiency";
+import EfficiencyChart from "./EfficiencyChart";
 
-export const revalidate = 0;
+const PERIOD_OPTIONS = [
+  { label: "30d", days: 30 },
+  { label: "90d", days: 90 },
+  { label: "1y", days: 365 },
+];
+const PAGE_SIZE = 20;
 
-export default async function TripsPage() {
-  const [stats, { trips }] = await Promise.all([
-    api.trips.stats(30).catch(() => null),
-    api.trips.list(20).catch(() => ({ total: 0, trips: [] })),
-  ]);
+export default function TripsPage() {
+  const [stats, setStats] = useState<TripStats | null>(null);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [statsDays, setStatsDays] = useState(30);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const loadStats = useCallback(async () => {
+    const s = await api.trips.stats(statsDays).catch(() => null);
+    setStats(s);
+  }, [statsDays]);
+
+  const loadTrips = useCallback(async (off: number, append: boolean) => {
+    const data = await api.trips.list(PAGE_SIZE, off).catch(() => ({ total: 0, trips: [] as Trip[] }));
+    if (append) {
+      setTrips((prev) => [...prev, ...data.trips]);
+    } else {
+      setTrips(data.trips);
+    }
+    setTotal(data.total);
+    setOffset(off + data.trips.length);
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([loadStats(), loadTrips(0, false)]).finally(() => setLoading(false));
+  }, [loadStats, loadTrips]);
+
+  async function handleLoadMore() {
+    setLoadingMore(true);
+    await loadTrips(offset, true);
+    setLoadingMore(false);
+  }
 
   const sym = stats?.currency_symbol ?? "$";
   const after = stats?.currency_after ?? false;
   const fmtCost = (n: number) =>
     after ? `${n.toFixed(2)} ${sym}` : `${sym}${n.toFixed(2)}`;
 
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-lg font-semibold text-white">Trips</h1>
+        <div className="text-center text-gray-500 py-8">Loading…</div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-lg font-semibold text-white">Trips</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-white">Trips</h1>
+        <div className="flex gap-1">
+          {PERIOD_OPTIONS.map((opt) => (
+            <button
+              key={opt.days}
+              onClick={() => setStatsDays(opt.days)}
+              className={`text-xs px-2.5 py-1 rounded-lg transition ${
+                statsDays === opt.days
+                  ? "bg-[#00B0F0]/20 text-[#00B0F0] font-medium"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {stats && (
         <>
           <div className="grid grid-cols-2 gap-3">
             <StatusCard
-              label="Trips (30d)"
+              label={`Trips (${statsDays}d)`}
               value={stats.trip_count}
             />
             <StatusCard
               label="Distance"
               value={`${stats.total_km.toLocaleString("sv-SE")} km`}
-              sub="last 30 days"
+              sub={`last ${statsDays} days`}
             />
             <StatusCard
               label="Energy used"
               value={`${stats.total_kwh} kWh`}
-              sub="last 30 days"
+              sub={`last ${statsDays} days`}
             />
             <StatusCard
               label="Avg efficiency"
@@ -55,13 +120,26 @@ export default async function TripsPage() {
             />
           </div>
 
+          {trips.length > 1 && <EfficiencyChart trips={trips} />}
+
           {Object.keys(stats.temp_efficiency).length > 0 && (
             <TempEfficiency data={stats.temp_efficiency} />
           )}
         </>
       )}
 
-      <TripList trips={trips} />
+      <TripList trips={trips} total={total} />
+
+      {trips.length < total && (
+        <button
+          onClick={handleLoadMore}
+          disabled={loadingMore}
+          className="w-full rounded-xl border border-white/10 py-2.5 text-sm text-gray-400
+            hover:text-white hover:border-white/20 disabled:opacity-50 transition"
+        >
+          {loadingMore ? "Loading…" : `Load more (${total - trips.length} remaining)`}
+        </button>
+      )}
     </div>
   );
 }

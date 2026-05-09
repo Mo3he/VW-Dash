@@ -1,8 +1,8 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -63,6 +63,35 @@ def battery_health(db: Session = Depends(get_db)):
 
     latest_soh = points[-1]["soh_pct"] if points else None
     return {"latest_soh_pct": latest_soh, "history": points}
+
+
+@router.post("/climate")
+def control_climate(action: Literal["start", "stop"] = Query(...)):
+    """Send a start/stop climatisation command to the vehicle."""
+    from poller import get_weconnect_vehicle
+    _wc, vehicle = get_weconnect_vehicle()
+    if vehicle is None:
+        raise HTTPException(status_code=503, detail="Vehicle not connected to WeConnect")
+    try:
+        # Use try/except dict access matching the poller's _domain() pattern
+        try:
+            clim_status = vehicle.domains["climatisation"]["climatisationStatus"]
+        except (KeyError, TypeError):
+            raise HTTPException(status_code=503, detail="Climatisation domain not available")
+
+        target_state = "COOLING" if action == "start" else "OFF"
+
+        # weconnect 0.60.x: setting .value on an Attribute triggers the CarAPI PUT
+        try:
+            clim_status.climatisationState.value = target_state
+        except Exception as inner:
+            raise HTTPException(status_code=500, detail=f"Climate command failed: {inner}")
+
+        return {"status": "command_sent", "action": action, "target_state": target_state}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 def _snap_to_dict(s: VehicleSnapshot) -> dict:

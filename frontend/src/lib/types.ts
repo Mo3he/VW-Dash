@@ -93,11 +93,19 @@ export interface BatteryHealth {
 export interface WsMessage {
   type: "snapshot";
   soc_pct: number | null;
+  range_km: number | null;
   range_miles: number | null;
   charging_state: string | null;
   charge_power_kw: number | null;
+  charge_rate_km_h: number | null;
+  charge_type: string | null;
+  remaining_charge_time_min: number | null;
+  target_soc_pct: number | null;
   plug_connected: boolean | null;
   locked: boolean | null;
   outdoor_temp_c: number | null;
+  battery_temp_c: number | null;
+  cabin_temp_c: number | null;
+  climatisation_state: string | null;
   recorded_at: string;
 }

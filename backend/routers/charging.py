@@ -1,13 +1,26 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import ChargingSession
 from config import settings
+
+
+class SessionUpdate(BaseModel):
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    soc_start_pct: Optional[float] = None
+    soc_end_pct: Optional[float] = None
+    kwh_added: Optional[float] = None
+    cost: Optional[float] = None
+    charge_type: Optional[str] = None
+    peak_power_kw: Optional[float] = None
 
 router = APIRouter(prefix="/api/charging", tags=["charging"])
 
@@ -34,6 +47,35 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
     if session is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Session not found")
+    return _session_to_dict(session)
+
+
+@router.patch("/sessions/{session_id}")
+def update_session(session_id: int, body: SessionUpdate, db: Session = Depends(get_db)):
+    session = db.get(ChargingSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if body.started_at is not None:
+        session.started_at = datetime.fromisoformat(body.started_at.replace("Z", "+00:00"))
+    if body.ended_at is not None:
+        session.ended_at = datetime.fromisoformat(body.ended_at.replace("Z", "+00:00"))
+    if body.soc_start_pct is not None:
+        session.soc_start_pct = body.soc_start_pct
+    if body.soc_end_pct is not None:
+        session.soc_end_pct = body.soc_end_pct
+    if body.kwh_added is not None:
+        session.kwh_added = body.kwh_added
+        session.cost = round(body.kwh_added * settings.electricity_rate_per_kwh, 2)
+    if body.cost is not None:
+        session.cost = body.cost
+    if body.charge_type is not None:
+        session.charge_type = body.charge_type
+    if body.peak_power_kw is not None:
+        session.peak_power_kw = body.peak_power_kw
+
+    db.commit()
+    db.refresh(session)
     return _session_to_dict(session)
 
 

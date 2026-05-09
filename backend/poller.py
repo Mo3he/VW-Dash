@@ -57,6 +57,11 @@ def reset_weconnect() -> None:
     init_weconnect()
 
 
+def get_weconnect_vehicle():
+    """Return the (WeConnect instance, vehicle) for control operations, or (None, None)."""
+    return _weconnect, _get_vehicle()
+
+
 def _safe_float(val) -> float | None:
     try:
         return float(val) if val is not None else None
@@ -308,12 +313,20 @@ def poll() -> None:
     payload = {
         "type": "snapshot",
         "soc_pct": snap.soc_pct,
+        "range_km": snap.range_km,
         "range_miles": snap.range_miles,
         "charging_state": snap.charging_state,
         "charge_power_kw": snap.charge_power_kw,
+        "charge_rate_km_h": snap.charge_rate_km_h,
+        "charge_type": snap.charge_type,
+        "remaining_charge_time_min": snap.remaining_charge_time_min,
+        "target_soc_pct": snap.target_soc_pct,
         "plug_connected": snap.plug_connected,
         "locked": snap.locked,
         "outdoor_temp_c": snap.outdoor_temp_c,
+        "battery_temp_c": snap.battery_temp_c,
+        "cabin_temp_c": snap.cabin_temp_c,
+        "climatisation_state": snap.climatisation_state,
         "recorded_at": snap.recorded_at.isoformat(),
     }
     try:

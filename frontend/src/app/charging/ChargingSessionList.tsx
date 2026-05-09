@@ -1,10 +1,23 @@
 "use client";
-import { Zap } from "lucide-react";
+import { useState } from "react";
+import { Zap, Pencil, X, Check } from "lucide-react";
 import type { ChargingSession } from "@/lib/types";
+import { api } from "@/lib/api";
 import clsx from "clsx";
 
 interface Props {
   sessions: ChargingSession[];
+  total: number;
+  onSessionUpdated: (updated: ChargingSession) => void;
+}
+
+interface EditState {
+  soc_start_pct: string;
+  soc_end_pct: string;
+  kwh_added: string;
+  cost: string;
+  charge_type: string;
+  peak_power_kw: string;
 }
 
 function formatDate(iso: string) {
@@ -16,7 +29,67 @@ function formatDate(iso: string) {
   });
 }
 
-export default function ChargingSessionList({ sessions }: Props) {
+function formatDuration(min: number | null) {
+  if (min == null) return null;
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function sessionToEditState(s: ChargingSession): EditState {
+  return {
+    soc_start_pct: s.soc_start_pct?.toString() ?? "",
+    soc_end_pct: s.soc_end_pct?.toString() ?? "",
+    kwh_added: s.kwh_added?.toString() ?? "",
+    cost: s.cost?.toString() ?? "",
+    charge_type: s.charge_type ?? "AC",
+    peak_power_kw: s.peak_power_kw?.toString() ?? "",
+  };
+}
+
+export default function ChargingSessionList({ sessions, total, onSessionUpdated }: Props) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editState, setEditState] = useState<EditState | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function startEdit(s: ChargingSession) {
+    setEditingId(s.id);
+    setEditState(sessionToEditState(s));
+    setSaveError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditState(null);
+    setSaveError(null);
+  }
+
+  async function saveEdit(s: ChargingSession) {
+    if (!editState) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const body: Record<string, unknown> = {};
+      if (editState.soc_start_pct !== "") body.soc_start_pct = parseFloat(editState.soc_start_pct);
+      if (editState.soc_end_pct !== "") body.soc_end_pct = parseFloat(editState.soc_end_pct);
+      if (editState.kwh_added !== "") body.kwh_added = parseFloat(editState.kwh_added);
+      if (editState.cost !== "") body.cost = parseFloat(editState.cost);
+      if (editState.charge_type) body.charge_type = editState.charge_type;
+      if (editState.peak_power_kw !== "") body.peak_power_kw = parseFloat(editState.peak_power_kw);
+
+      const updated = await api.charging.updateSession(s.id, body as Partial<ChargingSession>);
+      onSessionUpdated(updated);
+      setEditingId(null);
+      setEditState(null);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (!sessions.length) {
     return (
       <div className="rounded-2xl bg-[#161b27] border border-white/5 p-6 text-center text-gray-500">
@@ -27,59 +100,181 @@ export default function ChargingSessionList({ sessions }: Props) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-xs text-gray-500 uppercase tracking-wider px-1">Recent sessions</div>
-      {sessions.map((s) => (
-        <div
-          key={s.id}
-          className="rounded-2xl bg-[#161b27] border border-white/5 p-4"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-white font-medium">{formatDate(s.started_at)}</div>
-            <span
-              className={clsx(
-                "text-xs px-2 py-0.5 rounded-full font-medium",
-                s.charge_type === "DC"
-                  ? "bg-yellow-400/10 text-yellow-400"
-                  : "bg-[#00B0F0]/10 text-[#00B0F0]"
-              )}
-            >
-              {s.charge_type ?? "AC"}
-            </span>
+      <div className="text-xs text-gray-500 uppercase tracking-wider px-1">
+        All sessions ({total})
+      </div>
+      {sessions.map((s) => {
+        const isEditing = editingId === s.id;
+        return (
+          <div
+            key={s.id}
+            className="rounded-2xl bg-[#161b27] border border-white/5 p-4"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm text-white font-medium">{formatDate(s.started_at)}</div>
+              <div className="flex items-center gap-2">
+                {!isEditing && (
+                  <span
+                    className={clsx(
+                      "text-xs px-2 py-0.5 rounded-full font-medium",
+                      s.charge_type === "DC"
+                        ? "bg-yellow-400/10 text-yellow-400"
+                        : "bg-[#00B0F0]/10 text-[#00B0F0]"
+                    )}
+                  >
+                    {s.charge_type ?? "AC"}
+                  </span>
+                )}
+                {!isEditing ? (
+                  <button
+                    onClick={() => startEdit(s)}
+                    className="p-1 text-gray-600 hover:text-gray-300 transition"
+                    title="Edit session"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                ) : (
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => saveEdit(s)}
+                      disabled={saving}
+                      className="p-1 text-green-400 hover:text-green-300 disabled:opacity-50 transition"
+                      title="Save"
+                    >
+                      <Check size={15} />
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="p-1 text-gray-500 hover:text-gray-300 transition"
+                      title="Cancel"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {isEditing && editState ? (
+              <div className="flex flex-col gap-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">SoC start %</span>
+                    <input
+                      type="number"
+                      value={editState.soc_start_pct}
+                      onChange={(e) => setEditState({ ...editState, soc_start_pct: e.target.value })}
+                      className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">SoC end %</span>
+                    <input
+                      type="number"
+                      value={editState.soc_end_pct}
+                      onChange={(e) => setEditState({ ...editState, soc_end_pct: e.target.value })}
+                      className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">kWh added</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editState.kwh_added}
+                      onChange={(e) => setEditState({ ...editState, kwh_added: e.target.value })}
+                      className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Cost</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editState.cost}
+                      onChange={(e) => setEditState({ ...editState, cost: e.target.value })}
+                      className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Type</span>
+                    <select
+                      value={editState.charge_type}
+                      onChange={(e) => setEditState({ ...editState, charge_type: e.target.value })}
+                      className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                    >
+                      <option value="AC">AC</option>
+                      <option value="DC">DC</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Peak power kW</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={editState.peak_power_kw}
+                      onChange={(e) => setEditState({ ...editState, peak_power_kw: e.target.value })}
+                      className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                    />
+                  </label>
+                </div>
+                {saveError && <div className="text-xs text-red-400">{saveError}</div>}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className="text-lg font-semibold text-white">
+                      {s.soc_start_pct != null ? `${Math.round(s.soc_start_pct)}%` : "—"}
+                      <span className="text-gray-500 mx-1">→</span>
+                      {s.soc_end_pct != null ? `${Math.round(s.soc_end_pct)}%` : "—"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">SoC</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-semibold text-[#00B0F0] flex items-center justify-center gap-1">
+                      <Zap size={14} />
+                      {s.kwh_added != null ? s.kwh_added : "—"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">kWh</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-semibold text-white">
+                      {s.cost != null
+                        ? s.currency_after
+                          ? `${s.cost.toFixed(2)} ${s.currency_symbol}`
+                          : `${s.currency_symbol}${s.cost.toFixed(2)}`
+                        : "—"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">Cost</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-center mt-3">
+                  <div>
+                    <div className="text-sm font-medium text-white">
+                      {s.range_added_km != null ? `${s.range_added_km} km` : "—"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">Range added</div>
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-white">
+                      {s.peak_power_kw != null ? `${s.peak_power_kw} kW` : "—"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">Peak power</div>
+                  </div>
+                </div>
+
+                {s.duration_min != null && (
+                  <div className="text-xs text-gray-600 mt-2 text-right">
+                    {formatDuration(s.duration_min)}
+                  </div>
+                )}
+              </>
+            )}
           </div>
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div>
-              <div className="text-lg font-semibold text-white">
-                {s.soc_start_pct != null ? `${Math.round(s.soc_start_pct)}%` : "—"}
-                <span className="text-gray-500 mx-1">→</span>
-                {s.soc_end_pct != null ? `${Math.round(s.soc_end_pct)}%` : "—"}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">SoC</div>
-            </div>
-            <div>
-              <div className="text-lg font-semibold text-[#00B0F0] flex items-center justify-center gap-1">
-                <Zap size={14} />
-                {s.kwh_added != null ? `${s.kwh_added}` : "—"}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">kWh</div>
-            </div>
-            <div>
-              <div className="text-lg font-semibold text-white">
-                {s.cost != null
-                  ? s.currency_after
-                    ? `${s.cost.toFixed(2)} ${s.currency_symbol}`
-                    : `${s.currency_symbol}${s.cost.toFixed(2)}`
-                  : "—"}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">Cost</div>
-            </div>
-          </div>
-          {s.duration_min != null && (
-            <div className="text-xs text-gray-600 mt-2 text-right">
-              {s.duration_min} min
-            </div>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
