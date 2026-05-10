@@ -4,6 +4,8 @@ import { Zap, Pencil, X, Check, MapPin } from "lucide-react";
 import type { ChargingSession } from "@/lib/types";
 import { api } from "@/lib/api";
 import clsx from "clsx";
+import { useTimezone } from "@/app/SettingsProvider";
+import { fmtDateTime } from "@/lib/format";
 
 interface Props {
   sessions: ChargingSession[];
@@ -21,15 +23,6 @@ interface EditState {
   charge_type: string;
   peak_power_kw: string;
   location_name: string;
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function formatDuration(min: number | null) {
@@ -55,6 +48,7 @@ function sessionToEditState(s: ChargingSession): EditState {
 }
 
 export default function ChargingSessionList({ sessions, total, onSessionUpdated }: Props) {
+  const tz = useTimezone();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -121,7 +115,7 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex flex-col">
-                <div className="text-sm text-white font-medium">{formatDate(s.started_at)}</div>
+                <div className="text-sm text-white font-medium">{fmtDateTime(s.started_at, tz)}</div>
                 {s.location_name && (
                   <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
                     <MapPin size={10} className="text-[#00B0F0] shrink-0" />

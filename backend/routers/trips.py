@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from database import get_db
+from utils import iso_utc
 from models import Trip, TripPoint
 from config import settings
 
@@ -213,8 +214,8 @@ def _trip_to_dict(t: Trip) -> dict:
         duration_min = round((t.ended_at - t.started_at).total_seconds() / 60)
     return {
         "id": t.id,
-        "started_at": t.started_at.isoformat(),
-        "ended_at": t.ended_at.isoformat() if t.ended_at else None,
+        "started_at": iso_utc(t.started_at),
+        "ended_at": iso_utc(t.ended_at),
         "duration_min": duration_min,
         "distance_km": t.distance_km,
         "distance_miles": t.distance_miles,

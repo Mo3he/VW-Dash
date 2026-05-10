@@ -37,8 +37,10 @@ export default function TripMap({ points, mapId }: Props) {
         shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
       });
 
-      const map = L.map(mapId, { zoomControl: false, attributionControl: false });
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+      const map = L.map(mapId);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+      }).addTo(map);
 
       const latlngs = points.map((p) => [p.lat, p.lon] as [number, number]);
 

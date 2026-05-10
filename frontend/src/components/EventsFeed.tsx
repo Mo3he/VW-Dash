@@ -5,6 +5,8 @@ import {
 } from "lucide-react";
 import type { EventItem } from "@/lib/types";
 import { api } from "@/lib/api";
+import { useTimezone } from "@/app/SettingsProvider";
+import { fmtDate } from "@/lib/format";
 
 const EVENT_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = {
   trip_started:           { icon: <Navigation size={13} />,    color: "text-[#00B0F0]" },
@@ -19,14 +21,14 @@ const EVENT_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = {
   vehicle_unlocked:       { icon: <Unlock size={13} />,        color: "text-yellow-400" },
 };
 
-function timeAgo(iso: string): string {
+function timeAgo(iso: string, tz: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return "just now";
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
-  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+  return fmtDate(iso, tz);
 }
 
 function eventSubtext(item: EventItem): string | null {
@@ -48,6 +50,7 @@ interface Props {
 
 export default function EventsFeed({ pollTrigger }: Props) {
   const [events, setEvents] = useState<EventItem[]>([]);
+  const tz = useTimezone();
   const lastFetch = useRef(0);
 
   useEffect(() => {
@@ -89,7 +92,7 @@ export default function EventsFeed({ pollTrigger }: Props) {
                 <div className="text-xs text-white leading-tight">{e.label}</div>
                 {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
               </div>
-              <div className="text-xs text-gray-600 shrink-0">{timeAgo(e.occurred_at)}</div>
+              <div className="text-xs text-gray-600 shrink-0">{timeAgo(e.occurred_at, tz)}</div>
             </div>
           );
         })}

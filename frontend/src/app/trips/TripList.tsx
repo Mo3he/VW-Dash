@@ -5,19 +5,12 @@ import { Zap, Gauge, MapPin, ChevronDown } from "lucide-react";
 import clsx from "clsx";
 import TripMap from "@/components/TripMap";
 import { api } from "@/lib/api";
+import { useTimezone } from "@/app/SettingsProvider";
+import { fmtDateTime } from "@/lib/format";
 
 interface Props {
   trips: Trip[];
   total: number;
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function formatDuration(min: number | null) {
@@ -41,6 +34,7 @@ type RouteCache = Record<number, { lat: number; lon: number }[]>;
 export default function TripList({ trips, total }: Props) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [routeCache, setRouteCache] = useState<RouteCache>({});
+  const tz = useTimezone();
 
   async function toggleTrip(id: number) {
     if (expandedId === id) {
@@ -74,7 +68,7 @@ export default function TripList({ trips, total }: Props) {
           onClick={() => toggleTrip(t.id)}
         >
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-white font-medium">{formatDate(t.started_at)}</div>
+            <div className="text-sm text-white font-medium">{fmtDateTime(t.started_at, tz)}</div>
           </div>
 
           {/* Location row */}

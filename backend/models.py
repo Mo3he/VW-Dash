@@ -43,6 +43,9 @@ class VehicleSnapshot(Base):
     odometer_km: Mapped[Optional[float]] = mapped_column(Float)
     plug_connected: Mapped[Optional[bool]] = mapped_column(Boolean)
 
+    # Timestamps
+    car_captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
 
 class ChargingSession(Base):
     """One completed or in-progress charging session."""

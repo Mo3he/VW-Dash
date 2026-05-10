@@ -20,6 +20,7 @@ export interface VehicleSnapshot {
   locked: boolean | null;
   odometer_km: number | null;
   plug_connected: boolean | null;
+  car_captured_at: string | null;
 }
 
 export interface ChargingSession {
@@ -160,4 +161,5 @@ export interface WsMessage {
   cabin_temp_c: number | null;
   climatisation_state: string | null;
   recorded_at: string;
+  car_captured_at: string | null;
 }

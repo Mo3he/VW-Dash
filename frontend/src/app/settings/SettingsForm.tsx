@@ -13,6 +13,7 @@ interface ServerSettings {
   poll_interval_seconds: number;
   vehicle_name: string;
   battery_capacity_kwh: number;
+  timezone: string;
 }
 
 interface FormState {
@@ -26,6 +27,7 @@ interface FormState {
   poll_interval_seconds: string;
   vehicle_name: string;
   battery_capacity_kwh: string;
+  timezone: string;
 }
 
 interface Props {
@@ -41,9 +43,10 @@ function toForm(s: ServerSettings | null): FormState {
     currency_symbol: s?.currency_symbol ?? "kr",
     currency_after: s?.currency_after ?? false,
     epa_rated_range_km: String(s?.epa_rated_range_km ?? 410),
-    poll_interval_seconds: String(s?.poll_interval_seconds ?? 300),
+    poll_interval_seconds: String(Math.round((s?.poll_interval_seconds ?? 300) / 60)),
     vehicle_name: s?.vehicle_name ?? "ID.4",
     battery_capacity_kwh: String(s?.battery_capacity_kwh ?? 77),
+    timezone: s?.timezone ?? "UTC",
   };
 }
 
@@ -135,9 +138,10 @@ export default function SettingsForm({ initial }: Props) {
       currency_symbol: form.currency_symbol,
       currency_after: form.currency_after,
       epa_rated_range_km: Number(form.epa_rated_range_km),
-      poll_interval_seconds: Number(form.poll_interval_seconds),
+      poll_interval_seconds: Number(form.poll_interval_seconds) * 60,
       vehicle_name: form.vehicle_name,
       battery_capacity_kwh: Number(form.battery_capacity_kwh),
+      timezone: form.timezone,
     };
 
     if (form.vw_username) body.vw_username = form.vw_username;
@@ -310,16 +314,28 @@ export default function SettingsForm({ initial }: Props) {
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-gray-500 uppercase tracking-wider">Poll interval (seconds)</span>
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Poll interval (minutes)</span>
           <input
             type="number"
             value={form.poll_interval_seconds}
             onChange={(e) => set("poll_interval_seconds", e.target.value)}
-            step="60"
-            min="60"
+            step="1"
+            min="1"
             className={inputClass}
           />
-          <span className="text-xs text-gray-600">Minimum 60s — VW may rate-limit below 300s</span>
+          <span className="text-xs text-gray-600">Minimum 1 min — VW may rate-limit below 5 min</span>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Timezone</span>
+          <input
+            type="text"
+            value={form.timezone}
+            onChange={(e) => set("timezone", e.target.value)}
+            placeholder="e.g. Europe/London, America/New_York"
+            className={inputClass}
+          />
+          <span className="text-xs text-gray-600">IANA timezone — used for all date and time display</span>
         </label>
       </div>
 

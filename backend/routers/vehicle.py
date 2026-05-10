@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import VehicleSnapshot
 from config import settings
+from utils import iso_utc
 
 router = APIRouter(prefix="/api/vehicle", tags=["vehicle"])
 
@@ -56,7 +57,7 @@ def battery_health(db: Session = Depends(get_db)):
     for r in rows:
         soh = round((r.range_km / settings.epa_rated_range_km) * 100, 1)
         points.append({
-            "date": r.recorded_at.isoformat(),
+            "date": iso_utc(r.recorded_at),
             "range_km": r.range_km,
             "soh_pct": soh,
         })
@@ -97,7 +98,7 @@ def control_climate(action: Literal["start", "stop"] = Query(...)):
 def _snap_to_dict(s: VehicleSnapshot) -> dict:
     return {
         "id": s.id,
-        "recorded_at": s.recorded_at.isoformat(),
+        "recorded_at": iso_utc(s.recorded_at),
         "soc_pct": s.soc_pct,
         "range_km": s.range_km,
         "range_miles": s.range_miles,
@@ -109,7 +110,7 @@ def _snap_to_dict(s: VehicleSnapshot) -> dict:
         "target_soc_pct": s.target_soc_pct,
         "latitude": s.latitude,
         "longitude": s.longitude,
-        "parking_time": s.parking_time.isoformat() if s.parking_time else None,
+        "parking_time": iso_utc(s.parking_time),
         "outdoor_temp_c": s.outdoor_temp_c,
         "cabin_temp_c": s.cabin_temp_c,
         "battery_temp_c": s.battery_temp_c,
@@ -117,4 +118,5 @@ def _snap_to_dict(s: VehicleSnapshot) -> dict:
         "locked": s.locked,
         "odometer_km": s.odometer_km,
         "plug_connected": s.plug_connected,
+        "car_captured_at": iso_utc(s.car_captured_at),
     }

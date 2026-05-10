@@ -8,6 +8,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from database import get_db
+from utils import iso_utc
 from models import ChargingSession
 from config import settings
 
@@ -207,8 +208,8 @@ def _session_to_dict(s: ChargingSession) -> dict:
         duration_min = round((s.ended_at - s.started_at).total_seconds() / 60)
     return {
         "id": s.id,
-        "started_at": s.started_at.isoformat(),
-        "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+        "started_at": iso_utc(s.started_at),
+        "ended_at": iso_utc(s.ended_at),
         "duration_min": duration_min,
         "soc_start_pct": s.soc_start_pct,
         "soc_end_pct": s.soc_end_pct,

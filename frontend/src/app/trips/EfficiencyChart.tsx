@@ -9,6 +9,8 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { Trip } from "@/lib/types";
+import { useTimezone } from "@/app/SettingsProvider";
+import { fmtDate } from "@/lib/format";
 
 interface Props {
   trips: Trip[];
@@ -21,6 +23,7 @@ function downsample<T>(arr: T[], max: number): T[] {
 }
 
 export default function EfficiencyChart({ trips }: Props) {
+  const tz = useTimezone();
   const filtered = [...trips]
     .filter((t) => t.efficiency_kwh_100km != null && t.distance_km != null && t.distance_km > 0.5)
     .reverse(); // chronological order
@@ -31,7 +34,7 @@ export default function EfficiencyChart({ trips }: Props) {
   const ordered = downsample(filtered, 100);
 
   const points = ordered.map((t) => ({
-    date: new Date(t.started_at).toLocaleDateString([], { month: "short", day: "numeric" }),
+    date: fmtDate(t.started_at, tz),
     efficiency: t.efficiency_kwh_100km,
     distance: t.distance_km,
   }));

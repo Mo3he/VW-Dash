@@ -24,6 +24,7 @@ class SettingsUpdate(BaseModel):
     poll_interval_seconds: int | None = None
     vehicle_name: str | None = None
     battery_capacity_kwh: float | None = None
+    timezone: str | None = None
 
 
 @router.get("")
@@ -39,6 +40,7 @@ def get_settings():
         "poll_interval_seconds": settings.poll_interval_seconds,
         "vehicle_name": settings.vehicle_name,
         "battery_capacity_kwh": settings.battery_capacity_kwh,
+        "timezone": settings.timezone,
     }
 
 
@@ -61,6 +63,7 @@ def update_settings(body: SettingsUpdate):
         poll_interval_seconds=body.poll_interval_seconds,
         vehicle_name=body.vehicle_name,
         battery_capacity_kwh=body.battery_capacity_kwh,
+        timezone=body.timezone,
     )
 
     if credentials_changed:

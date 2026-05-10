@@ -6,7 +6,7 @@ Runs as an APScheduler background job inside the FastAPI process.
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from database import SessionLocal
 from geocoder import reverse_geocode
 from models import ChargingSession, Event, Trip, TripPoint, VehicleSnapshot
 from ws import broadcast
+from utils import iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -167,14 +168,25 @@ def _val(obj, attr: str):
         return None
 
 
+def _car_ts(obj) -> Optional[datetime]:
+    """Return carCapturedTimestamp.value from a GenericStatus object, or None."""
+    try:
+        v = obj.carCapturedTimestamp.value if obj else None
+        return v if isinstance(v, datetime) else None
+    except Exception:
+        return None
+
+
 def _extract_snapshot(vehicle) -> dict:
     """Pull all telemetry from a WeConnect vehicle object into a flat dict."""
     data: dict = {}
+    car_timestamps: list[datetime] = []
 
     try:
         # Battery / range  (domain: charging)
         bs = _domain(vehicle, "charging", "batteryStatus")
         if bs:
+            car_timestamps.append(ts) if (ts := _car_ts(bs)) else None
             data["soc_pct"] = _safe_float(_val(bs, "currentSOC_pct"))
             data["range_km"] = _safe_float(_val(bs, "cruisingRangeElectric_km"))
             if data.get("range_km") is not None:
@@ -183,6 +195,7 @@ def _extract_snapshot(vehicle) -> dict:
         # Charging status  (domain: charging)
         cs = _domain(vehicle, "charging", "chargingStatus")
         if cs:
+            car_timestamps.append(ts) if (ts := _car_ts(cs)) else None
             data["charging_state"] = str(_val(cs, "chargingState") or "")
             data["charge_power_kw"] = _safe_float(_val(cs, "chargePower_kW"))
             data["charge_rate_km_h"] = _safe_float(_val(cs, "chargeRate_kmph"))
@@ -192,17 +205,20 @@ def _extract_snapshot(vehicle) -> dict:
         # Charging settings — target SoC  (domain: charging)
         cst = _domain(vehicle, "charging", "chargingSettings")
         if cst:
+            car_timestamps.append(ts) if (ts := _car_ts(cst)) else None
             data["target_soc_pct"] = _safe_float(_val(cst, "targetSOC_pct"))
 
         # Plug  (domain: charging)
         ps = _domain(vehicle, "charging", "plugStatus")
         if ps:
+            car_timestamps.append(ts) if (ts := _car_ts(ps)) else None
             conn = _val(ps, "plugConnectionState")
             data["plug_connected"] = conn == "CONNECTED" if conn else None
 
         # Parking position  (domain: parking)
         pp = _domain(vehicle, "parking", "parkingPosition")
         if pp:
+            car_timestamps.append(ts) if (ts := _car_ts(pp)) else None
             data["latitude"] = _safe_float(_val(pp, "latitude"))
             data["longitude"] = _safe_float(_val(pp, "longitude"))
             pt = _val(pp, "carCapturedTimestamp")
@@ -211,16 +227,19 @@ def _extract_snapshot(vehicle) -> dict:
         # Climatisation status  (domain: climatisation)
         cl = _domain(vehicle, "climatisation", "climatisationStatus")
         if cl:
+            car_timestamps.append(ts) if (ts := _car_ts(cl)) else None
             data["climatisation_state"] = str(_val(cl, "climatisationState") or "")
 
         # Climatisation settings — target cabin temp  (domain: climatisation)
         clst = _domain(vehicle, "climatisation", "climatisationSettings")
         if clst:
+            car_timestamps.append(ts) if (ts := _car_ts(clst)) else None
             data["cabin_temp_c"] = _safe_float(_val(clst, "targetTemperature_C"))
 
         # Access — lock status: overallStatus is "safe" (locked) or "unsafe"
         ac = _domain(vehicle, "access", "accessStatus")
         if ac:
+            car_timestamps.append(ts) if (ts := _car_ts(ac)) else None
             overall = _val(ac, "overallStatus")
             if overall is not None:
                 data["locked"] = str(overall).lower() == "safe"
@@ -228,11 +247,13 @@ def _extract_snapshot(vehicle) -> dict:
         # Odometer  (domain: measurements)
         om = _domain(vehicle, "measurements", "odometerStatus")
         if om:
+            car_timestamps.append(ts) if (ts := _car_ts(om)) else None
             data["odometer_km"] = _safe_float(_val(om, "odometer"))
 
         # Battery temperature — values are in Kelvin  (domain: measurements)
         bt = _domain(vehicle, "measurements", "temperatureBatteryStatus")
         if bt:
+            car_timestamps.append(ts) if (ts := _car_ts(bt)) else None
             t_min = _safe_float(_val(bt, "temperatureHvBatteryMin_K"))
             t_max = _safe_float(_val(bt, "temperatureHvBatteryMax_K"))
             if t_min is not None and t_max is not None:
@@ -241,6 +262,7 @@ def _extract_snapshot(vehicle) -> dict:
     except Exception as exc:
         logger.warning("Error extracting snapshot: %s", exc)
 
+    data["car_captured_at"] = max(car_timestamps) if car_timestamps else None
     return data
 
 
@@ -458,7 +480,8 @@ def poll() -> None:
         "battery_temp_c": snap.battery_temp_c,
         "cabin_temp_c": snap.cabin_temp_c,
         "climatisation_state": snap.climatisation_state,
-        "recorded_at": snap.recorded_at.isoformat(),
+        "recorded_at": iso_utc(snap.recorded_at),
+        "car_captured_at": iso_utc(snap.car_captured_at),
     }
     try:
         loop = asyncio.get_event_loop()

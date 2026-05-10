@@ -1,19 +1,23 @@
 "use client";
 import { useState } from "react";
 import {
-  Lock, Unlock, Plug, Thermometer, Zap, Clock, Wind, Gauge,
+  Lock, Unlock, Plug, Thermometer, Zap, Wind, Gauge,
 } from "lucide-react";
 import SocGauge from "@/components/SocGauge";
 import StatusCard from "@/components/StatusCard";
 import SocHistory from "@/components/SocHistory";
 import EventsFeed from "@/components/EventsFeed";
+import BatteryHealthCard from "@/components/BatteryHealthCard";
 import { useVehicleLive } from "@/hooks/useVehicleLive";
-import type { VehicleSnapshot } from "@/lib/types";
+import type { VehicleSnapshot, BatteryHealth } from "@/lib/types";
 import { api } from "@/lib/api";
+import { useTimezone } from "./SettingsProvider";
+import { fmtTime } from "@/lib/format";
 
 interface Props {
   initial: VehicleSnapshot | null;
   history: VehicleSnapshot[];
+  batteryHealth: BatteryHealth | null;
 }
 
 function chargingLabel(state: string | null) {
@@ -53,8 +57,9 @@ function formatParkingDuration(parkingTime: string | null): string | null {
   return m > 0 ? `Parked ${h}h ${m}m ago` : `Parked ${h}h ago`;
 }
 
-export default function DashboardClient({ initial, history }: Props) {
+export default function DashboardClient({ initial, history, batteryHealth }: Props) {
   const { data: live, connected } = useVehicleLive();
+  const tz = useTimezone();
   const [climateLoading, setClimateLoading] = useState(false);
   const [climateMsg, setClimateMsg] = useState<string | null>(null);
 
@@ -75,6 +80,7 @@ export default function DashboardClient({ initial, history }: Props) {
   const odometer = initial?.odometer_km ?? null;
 
   const recordedAt = live?.recorded_at ?? initial?.recorded_at ?? null;
+  const carCapturedAt = live?.car_captured_at ?? initial?.car_captured_at ?? null;
   const isCharging = chargingState === "CHARGING";
   const isClimateActive = climatisationState != null &&
     climatisationState !== "OFF" &&
@@ -98,11 +104,15 @@ export default function DashboardClient({ initial, history }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2 justify-end">
-        <span
-          className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-gray-600"}`}
-        />
-        <span className="text-xs text-gray-500">{connected ? "Live" : "Offline"}</span>
+      <div className="flex flex-col items-end gap-0.5">
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <span className="text-gray-600">Car</span>
+          {carCapturedAt ? fmtTime(carCapturedAt, tz) : "—"}
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <span className="text-gray-600">Server</span>
+          {recordedAt ? fmtTime(recordedAt, tz) : "—"}
+        </div>
       </div>
 
       {soc != null ? (
@@ -243,14 +253,10 @@ export default function DashboardClient({ initial, history }: Props) {
 
       {history.length > 1 && <SocHistory data={history} />}
 
+      {batteryHealth && <BatteryHealthCard data={batteryHealth} />}
+
       <EventsFeed pollTrigger={live?.recorded_at} />
 
-      {recordedAt && (
-        <div className="flex items-center gap-1.5 justify-center text-xs text-gray-600">
-          <Clock size={12} />
-          Last updated {new Date(recordedAt).toLocaleTimeString("sv-SE")}
-        </div>
-      )}
     </div>
   );
 }

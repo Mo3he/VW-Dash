@@ -8,17 +8,17 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { VehicleSnapshot } from "@/lib/types";
+import { useTimezone } from "@/app/SettingsProvider";
+import { fmtChartTime } from "@/lib/format";
 
 interface Props {
   data: VehicleSnapshot[];
 }
 
 export default function SocHistory({ data }: Props) {
+  const tz = useTimezone();
   const points = data.map((s) => ({
-    time: new Date(s.recorded_at).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
+    time: fmtChartTime(s.recorded_at, tz),
     soc: s.soc_pct,
   }));
 

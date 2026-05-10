@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Event
+from utils import iso_utc
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -50,7 +51,7 @@ def _event_to_dict(e: Event) -> dict:
             detail = e.detail
     return {
         "id": e.id,
-        "occurred_at": e.occurred_at.isoformat(),
+        "occurred_at": iso_utc(e.occurred_at),
         "event_type": e.event_type,
         "label": _EVENT_LABELS.get(e.event_type, e.event_type),
         "detail": detail,
