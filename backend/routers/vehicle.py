@@ -53,25 +53,43 @@ def battery_health(
     db: Session = Depends(get_db),
 ):
     """
-    Return observed range at ≥99% SoC over the requested date window,
-    alongside the configured rated range for comparison.
+    Return range extrapolated to 100% SoC over the requested date window,
+    grouped by day (median), alongside the configured rated range.
+    Accepts any snapshot with SoC >= 20% to maximise data density.
     """
-    filters = [
-        VehicleSnapshot.soc_pct >= 99,
-        VehicleSnapshot.range_km.is_not(None),
-    ]
     now = datetime.now(timezone.utc)
     since = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc) if start_date else now - timedelta(days=365 * 10)
     until = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc).replace(hour=23, minute=59, second=59) if end_date else now
-    filters += [VehicleSnapshot.recorded_at >= since, VehicleSnapshot.recorded_at <= until]
 
     rows = db.scalars(
         select(VehicleSnapshot)
-        .where(*filters)
+        .where(
+            VehicleSnapshot.soc_pct >= 20,
+            VehicleSnapshot.range_km.is_not(None),
+            VehicleSnapshot.recorded_at >= since,
+            VehicleSnapshot.recorded_at <= until,
+        )
         .order_by(VehicleSnapshot.recorded_at.asc())
     ).all()
 
-    points = [{"date": iso_utc(r.recorded_at), "range_km": r.range_km} for r in rows]
+    # Extrapolate each snapshot to 100% SoC, then group by calendar day and take median
+    from collections import defaultdict
+    daily: dict[str, list[float]] = defaultdict(list)
+    for r in rows:
+        extrapolated = r.range_km * (100.0 / r.soc_pct)
+        day = r.recorded_at.strftime("%Y-%m-%d")
+        daily[day].append(extrapolated)
+
+    def _median(vals: list[float]) -> float:
+        s = sorted(vals)
+        mid = len(s) // 2
+        return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
+
+    points = [
+        {"date": day + "T12:00:00Z", "range_km": round(_median(vals))}
+        for day, vals in sorted(daily.items())
+    ]
+
     return {
         "rated_range_km": settings.epa_rated_range_km,
         "history": points,

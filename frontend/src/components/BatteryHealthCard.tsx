@@ -14,7 +14,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
       <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4">
         <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Estimated range vs rated range</div>
         <div className="text-xs text-gray-600 text-center py-4">
-          No data in this period — requires a snapshot at ≥99% SoC
+          No data in this period
         </div>
       </div>
     );
@@ -64,7 +64,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
           />
           <Tooltip
             contentStyle={{ background: "#1e2535", border: "none", borderRadius: 8, fontSize: 12 }}
-            formatter={(val: number) => [`${val} km`, "Observed range"]}
+            formatter={(val: number) => [`${val} km`, "Extrapolated range (@ 100% SoC)"]}
           />
           <Line
             type="monotone"
@@ -78,7 +78,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
         </LineChart>
       </ResponsiveContainer>
       <div className="text-xs text-gray-600 mt-1 text-center">
-        Observed range at ≥99% SoC — affected by temperature, terrain, and driving style
+        Range extrapolated to 100% SoC from all readings ≥20% — daily median, affected by temperature and driving style
       </div>
     </div>
   );
