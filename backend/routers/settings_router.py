@@ -1,5 +1,4 @@
 from __future__ import annotations
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter
@@ -69,7 +68,6 @@ def update_settings(body: SettingsUpdate):
     if credentials_changed:
         poller.reset_weconnect()
         # Kick off an immediate poll in the background so the dashboard updates right away
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(_executor, poller.poll)
+        _executor.submit(poller.poll)
 
     return get_settings()
