@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = 300
     db_path: str = os.path.join(_DATA_DIR, "vwdash.db")
 
-    electricity_rate_per_kwh: float = 0.13
+    electricity_rate_per_kwh: float = 0.0
     currency_symbol: str = "$"
     currency_after: bool = False  # True = "100 kr" style, False = "$100" style
     epa_rated_range_km: float = 410.0

@@ -96,7 +96,6 @@ export default function ChargingPage() {
             <StatusCard
               label="Estimated cost"
               value={fmtCost(stats.total_cost)}
-              sub={`@ ${fmtCost(stats.electricity_rate)}/kWh`}
             />
             <StatusCard
               label="Range added"

@@ -276,18 +276,6 @@ export default function SettingsForm({ initial }: Props) {
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-gray-500 uppercase tracking-wider">Electricity rate (per kWh)</span>
-          <input
-            type="number"
-            value={form.electricity_rate_per_kwh}
-            onChange={(e) => set("electricity_rate_per_kwh", e.target.value)}
-            step="0.001"
-            min="0"
-            className={inputClass}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1">
           <span className="text-xs text-gray-500 uppercase tracking-wider">Rated range (km)</span>
           <input
             type="number"
