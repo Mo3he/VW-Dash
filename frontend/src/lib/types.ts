@@ -113,9 +113,9 @@ export interface TripStats {
   temp_efficiency: Record<string, number>;
 }
 
-export interface BatteryHealth {
-  latest_soh_pct: number | null;
-  history: { date: string; range_km: number; soh_pct: number }[];
+export interface RangeHealth {
+  rated_range_km: number;
+  history: { date: string; range_km: number }[];
 }
 
 export interface PopularRoute {

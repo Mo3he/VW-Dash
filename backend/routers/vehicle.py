@@ -39,31 +39,35 @@ def snapshot_history(
 
 
 @router.get("/battery-health")
-def battery_health(db: Session = Depends(get_db)):
+def battery_health(
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     """
-    Estimate SoH by comparing observed max range at 100% SoC against EPA rated range.
-    Returns trend data points over time.
+    Return observed range at ≥99% SoC over the requested date window,
+    alongside the configured rated range for comparison.
     """
+    filters = [
+        VehicleSnapshot.soc_pct >= 99,
+        VehicleSnapshot.range_km.is_not(None),
+    ]
+    now = datetime.now(timezone.utc)
+    since = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc) if start_date else now - timedelta(days=365 * 10)
+    until = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc).replace(hour=23, minute=59, second=59) if end_date else now
+    filters += [VehicleSnapshot.recorded_at >= since, VehicleSnapshot.recorded_at <= until]
+
     rows = db.scalars(
         select(VehicleSnapshot)
-        .where(
-            VehicleSnapshot.soc_pct >= 99,
-            VehicleSnapshot.range_km.is_not(None),
-        )
+        .where(*filters)
         .order_by(VehicleSnapshot.recorded_at.asc())
     ).all()
 
-    points = []
-    for r in rows:
-        soh = round((r.range_km / settings.epa_rated_range_km) * 100, 1)
-        points.append({
-            "date": iso_utc(r.recorded_at),
-            "range_km": r.range_km,
-            "soh_pct": soh,
-        })
-
-    latest_soh = points[-1]["soh_pct"] if points else None
-    return {"latest_soh_pct": latest_soh, "history": points}
+    points = [{"date": iso_utc(r.recorded_at), "range_km": r.range_km} for r in rows]
+    return {
+        "rated_range_km": settings.epa_rated_range_km,
+        "history": points,
+    }
 
 
 @router.post("/climate")

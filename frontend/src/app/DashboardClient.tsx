@@ -7,9 +7,8 @@ import SocGauge from "@/components/SocGauge";
 import StatusCard from "@/components/StatusCard";
 import SocHistory from "@/components/SocHistory";
 import EventsFeed from "@/components/EventsFeed";
-import BatteryHealthCard from "@/components/BatteryHealthCard";
 import { useVehicleLive } from "@/hooks/useVehicleLive";
-import type { VehicleSnapshot, BatteryHealth } from "@/lib/types";
+import type { VehicleSnapshot } from "@/lib/types";
 import { api } from "@/lib/api";
 import { useTimezone } from "./SettingsProvider";
 import { fmtTime } from "@/lib/format";
@@ -17,7 +16,6 @@ import { fmtTime } from "@/lib/format";
 interface Props {
   initial: VehicleSnapshot | null;
   history: VehicleSnapshot[];
-  batteryHealth: BatteryHealth | null;
 }
 
 function chargingLabel(state: string | null) {
@@ -57,7 +55,7 @@ function formatParkingDuration(parkingTime: string | null): string | null {
   return m > 0 ? `Parked ${h}h ${m}m ago` : `Parked ${h}h ago`;
 }
 
-export default function DashboardClient({ initial, history, batteryHealth }: Props) {
+export default function DashboardClient({ initial, history }: Props) {
   const { data: live, connected } = useVehicleLive();
   const tz = useTimezone();
   const [climateLoading, setClimateLoading] = useState(false);
@@ -252,8 +250,6 @@ export default function DashboardClient({ initial, history, batteryHealth }: Pro
       </div>
 
       {history.length > 1 && <SocHistory data={history} />}
-
-      {batteryHealth && <BatteryHealthCard data={batteryHealth} />}
 
       <EventsFeed pollTrigger={live?.recorded_at} />
 

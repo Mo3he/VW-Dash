@@ -1,26 +1,20 @@
 "use client";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import type { BatteryHealth } from "@/lib/types";
+import type { RangeHealth } from "@/lib/types";
 import { useTimezone } from "@/app/SettingsProvider";
 import { fmtDate } from "@/lib/format";
 
-function healthColor(pct: number): string {
-  if (pct >= 90) return "text-green-400";
-  if (pct >= 80) return "text-yellow-400";
-  return "text-red-400";
-}
-
-export default function BatteryHealthCard({ data }: { data: BatteryHealth }) {
+export default function RangeHealthCard({ data }: { data: RangeHealth }) {
   const tz = useTimezone();
 
-  if (data.latest_soh_pct == null && data.history.length === 0) {
+  if (data.history.length === 0) {
     return (
       <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4">
-        <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Battery health</div>
+        <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Estimated range vs rated range</div>
         <div className="text-xs text-gray-600 text-center py-4">
-          No data yet — requires a snapshot at ≥99% SoC
+          No data in this period — requires a snapshot at ≥99% SoC
         </div>
       </div>
     );
@@ -28,60 +22,63 @@ export default function BatteryHealthCard({ data }: { data: BatteryHealth }) {
 
   const points = data.history.map((h) => ({
     date: fmtDate(h.date, tz),
-    soh: h.soh_pct,
+    range_km: Math.round(h.range_km),
   }));
+
+  const latest = points[points.length - 1]?.range_km ?? null;
+  const pct = latest != null ? Math.round((latest / data.rated_range_km) * 100) : null;
 
   return (
     <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4">
       <div className="flex items-center justify-between mb-3">
-        <div className="text-xs text-gray-500 uppercase tracking-wider">Battery health</div>
-        {data.latest_soh_pct != null && (
-          <span className={`text-sm font-semibold ${healthColor(data.latest_soh_pct)}`}>
-            {data.latest_soh_pct.toFixed(1)}%
+        <div className="text-xs text-gray-500 uppercase tracking-wider">Estimated range vs rated range</div>
+        {latest != null && (
+          <span className="text-sm font-semibold text-[#00B0F0]">
+            {latest} km{pct != null && <span className="text-gray-500 font-normal ml-1">({pct}%)</span>}
           </span>
         )}
       </div>
 
-      {points.length >= 2 ? (
-        <ResponsiveContainer width="100%" height={120}>
-          <LineChart data={points} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-            <XAxis
-              dataKey="date"
-              tick={{ fill: "#6b7280", fontSize: 10 }}
-              tickLine={false}
-              axisLine={false}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              tick={{ fill: "#6b7280", fontSize: 10 }}
-              tickLine={false}
-              axisLine={false}
-              domain={["auto", "auto"]}
-              tickFormatter={(v) => `${v}%`}
-            />
-            <Tooltip
-              contentStyle={{ background: "#1e2535", border: "none", borderRadius: 8, fontSize: 12 }}
-              formatter={(val: number) => [`${val.toFixed(1)}%`, "SoH"]}
-            />
-            <Line
-              type="monotone"
-              dataKey="soh"
-              stroke="#4ade80"
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4 }}
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      ) : (
-        <div className="text-xs text-gray-600 text-center py-2">
-          Need more readings at full charge to show trend
-        </div>
-      )}
-
+      <ResponsiveContainer width="100%" height={140}>
+        <LineChart data={points} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <XAxis
+            dataKey="date"
+            tick={{ fill: "#6b7280", fontSize: 10 }}
+            tickLine={false}
+            axisLine={false}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            tick={{ fill: "#6b7280", fontSize: 10 }}
+            tickLine={false}
+            axisLine={false}
+            domain={["auto", "auto"]}
+            tickFormatter={(v) => `${v}`}
+          />
+          <ReferenceLine
+            y={data.rated_range_km}
+            stroke="#6b7280"
+            strokeDasharray="4 4"
+            strokeWidth={1}
+            label={{ value: `Rated ${data.rated_range_km} km`, position: "insideTopRight", fill: "#6b7280", fontSize: 10 }}
+          />
+          <Tooltip
+            contentStyle={{ background: "#1e2535", border: "none", borderRadius: 8, fontSize: 12 }}
+            formatter={(val: number) => [`${val} km`, "Observed range"]}
+          />
+          <Line
+            type="monotone"
+            dataKey="range_km"
+            stroke="#00B0F0"
+            strokeWidth={2}
+            dot={{ r: 3, fill: "#00B0F0", strokeWidth: 0 }}
+            activeDot={{ r: 5 }}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
       <div className="text-xs text-gray-600 mt-1 text-center">
-        Based on observed range vs rated range at ≥99% SoC
+        Observed range at ≥99% SoC — affected by temperature, terrain, and driving style
       </div>
     </div>
   );

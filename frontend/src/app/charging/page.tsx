@@ -1,16 +1,18 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
-import type { ChargingSession, ChargingStats } from "@/lib/types";
+import type { ChargingSession, ChargingStats, RangeHealth } from "@/lib/types";
 import StatusCard from "@/components/StatusCard";
 import ChargeMap from "@/components/ChargeMap";
 import ChargingSessionList from "./ChargingSessionList";
+import RangeHealthCard from "@/components/BatteryHealthCard";
 import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
 
 const PAGE_SIZE = 20;
 
 export default function ChargingPage() {
   const [stats, setStats] = useState<ChargingStats | null>(null);
+  const [rangeHealth, setRangeHealth] = useState<RangeHealth | null>(null);
   const [sessions, setSessions] = useState<ChargingSession[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -19,8 +21,12 @@ export default function ChargingPage() {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const loadStats = useCallback(async () => {
-    const s = await api.charging.stats(range.start, range.end).catch(() => null);
+    const [s, rh] = await Promise.all([
+      api.charging.stats(range.start, range.end).catch(() => null),
+      api.vehicle.batteryHealth(range.start, range.end).catch(() => null),
+    ]);
     setStats(s);
+    setRangeHealth(rh);
   }, [range]);
 
   const loadSessions = useCallback(async (off: number, append: boolean) => {
@@ -134,6 +140,8 @@ export default function ChargingPage() {
       )}
 
       <ChargeMap />
+
+      {rangeHealth && <RangeHealthCard data={rangeHealth} />}
 
       <ChargingSessionList
         sessions={sessions}

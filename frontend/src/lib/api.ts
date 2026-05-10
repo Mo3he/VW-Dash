@@ -1,5 +1,5 @@
 import type {
-  BatteryHealth,
+  RangeHealth,
   ChargeLocation,
   ChargingSession,
   ChargingStats,
@@ -57,7 +57,8 @@ export const api = {
     latest: () => get<VehicleSnapshot>("/vehicle/latest"),
     history: (hours = 24) =>
       get<VehicleSnapshot[]>(`/vehicle/history?hours=${hours}`),
-    batteryHealth: () => get<BatteryHealth>("/vehicle/battery-health"),
+    batteryHealth: (start?: string, end?: string) =>
+      get<RangeHealth>(`/vehicle/battery-health${start ? `?start_date=${start}&end_date=${end}` : ""}`),
     climate: (action: "start" | "stop") =>
       post<{ status: string; action: string; target_state: string }>(
         `/vehicle/climate?action=${action}`
