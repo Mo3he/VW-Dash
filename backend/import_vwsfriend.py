@@ -20,7 +20,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from models import Base, VehicleSnapshot, ChargingSession, Trip
@@ -143,6 +143,11 @@ def _import_snapshot_rows(rows: list[dict], session: Session) -> int:
         ts = _ts(r.get("carCapturedTimestamp"))
         if ts is None:
             continue
+        exists = session.execute(
+            select(VehicleSnapshot.id).where(VehicleSnapshot.recorded_at == ts)
+        ).scalar_one_or_none()
+        if exists is not None:
+            continue
         soc = _int(r.get("currentSOC_pct"))
         range_km = _int(r.get("cruisingRangeElectric_km"))
         session.add(VehicleSnapshot(
@@ -170,6 +175,12 @@ def _import_trip_rows(rows: list[dict], battery_rows: list[dict], session: Sessi
         if start_km is not None and end_km is not None and end_km > start_km:
             distance_km = float(end_km - start_km)
             distance_miles = round(distance_km * 0.621371, 1)
+
+        exists = session.execute(
+            select(Trip.id).where(Trip.started_at == started)
+        ).scalar_one_or_none()
+        if exists is not None:
+            continue
 
         soc_start = _soc_at(times, socs, started, before=True)
         soc_end = _soc_at(times, socs, ended, before=False) if ended else None
@@ -212,14 +223,26 @@ def _import_charging_rows(
     session: Session,
     battery_kwh: float,
     epa_range_km: float = 410.0,
-    electricity_rate: float = 0.13,
+    electricity_rate: float | None = None,
 ) -> int:
+    if electricity_rate is None:
+        try:
+            from config import settings as _s
+            electricity_rate = _s.electricity_rate_per_kwh
+        except Exception:
+            electricity_rate = 0.0
     count = 0
     for r in rows:
         started = _ts(r.get("started"))
         ended = _ts(r.get("ended"))
         if started is None:
             continue
+        exists = session.execute(
+            select(ChargingSession.id).where(ChargingSession.started_at == started)
+        ).scalar_one_or_none()
+        if exists is not None:
+            continue
+
         start_soc = _int(r.get("startSOC_pct"))
         end_soc = _int(r.get("endSOC_pct"))
         kwh = _float(r.get("realCharged_kWh"))

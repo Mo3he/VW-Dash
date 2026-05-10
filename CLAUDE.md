@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Rules
+
+- **Never** add `Co-Authored-By` or any Claude/AI attribution lines to commit messages.
+
 ## What This Is
 
 VW-Dash is a self-hosted dashboard for Volkswagen ID. series electric vehicles. It polls the VW WeConnect API on a configurable interval, stores telemetry in a local SQLite database, and serves a Next.js frontend with live WebSocket updates.

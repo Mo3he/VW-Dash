@@ -1,8 +1,8 @@
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from config import settings, persist_settings
 import poller
@@ -16,14 +16,16 @@ class SettingsUpdate(BaseModel):
     vw_username: str | None = None
     vw_password: str | None = None
     vw_vin: str | None = None
-    electricity_rate_per_kwh: float | None = None
+    electricity_rate_per_kwh: float | None = Field(default=None, ge=0)
     currency_symbol: str | None = None
     currency_after: bool | None = None
-    epa_rated_range_km: float | None = None
-    poll_interval_seconds: int | None = None
+    epa_rated_range_km: float | None = Field(default=None, gt=0)
+    poll_interval_seconds: int | None = Field(default=None, ge=60)
     vehicle_name: str | None = None
-    battery_capacity_kwh: float | None = None
+    battery_capacity_kwh: float | None = Field(default=None, gt=0)
     timezone: str | None = None
+    access_token: str | None = None
+    webhook_url: str | None = None
 
 
 @router.get("")
@@ -63,11 +65,35 @@ def update_settings(body: SettingsUpdate):
         vehicle_name=body.vehicle_name,
         battery_capacity_kwh=body.battery_capacity_kwh,
         timezone=body.timezone,
+        access_token=body.access_token,
+        webhook_url=body.webhook_url,
     )
 
     if credentials_changed:
         poller.reset_weconnect()
-        # Kick off an immediate poll in the background so the dashboard updates right away
         _executor.submit(poller.poll)
 
     return get_settings()
+
+
+@router.post("/test-connection")
+def test_connection():
+    """Attempt WeConnect login and return success/failure without persisting."""
+    if not settings.vw_username or not settings.vw_password:
+        raise HTTPException(status_code=400, detail="No credentials configured")
+    try:
+        import os
+        from weconnect import weconnect as wc
+        tokenfile = os.path.join(os.path.dirname(__file__), "..", "..", "data", "weconnect_token.json")
+        wc_inst = wc.WeConnect(
+            username=settings.vw_username,
+            password=settings.vw_password,
+            tokenfile=tokenfile,
+            updateAfterLogin=False,
+            loginOnInit=False,
+        )
+        wc_inst.login()
+        vehicles = list(wc_inst.vehicles.keys())
+        return {"status": "ok", "vehicles": vehicles}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))

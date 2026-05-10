@@ -2,7 +2,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+import csv
+import io
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -117,6 +120,17 @@ def trip_stats(
         k: round(sum(v) / len(v), 1) for k, v in temp_buckets.items() if v
     }
 
+    # Previous period (same duration, immediately before)
+    period_len = until - since
+    prev_until = since
+    prev_since = since - period_len
+    prev_trips = db.scalars(
+        select(Trip)
+        .where(Trip.started_at >= prev_since, Trip.started_at <= prev_until, Trip.ended_at.is_not(None))
+    ).all()
+    prev_km = sum(t.distance_km or 0 for t in prev_trips)
+    prev_kwh = sum(t.kwh_used or 0 for t in prev_trips)
+
     return {
         "period_days": days,
         "trip_count": len(trips),
@@ -127,6 +141,11 @@ def trip_stats(
         "currency_symbol": settings.currency_symbol,
         "currency_after": settings.currency_after,
         "temp_efficiency": temp_efficiency,
+        "prev": {
+            "trip_count": len(prev_trips),
+            "total_km": round(prev_km, 1),
+            "total_kwh": round(prev_kwh, 2),
+        },
     }
 
 
@@ -206,6 +225,58 @@ def list_journeys(
         })
 
     return journeys
+
+
+@router.get("/export.csv")
+def export_trips_csv(
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    q = select(Trip).where(Trip.ended_at.is_not(None)).order_by(Trip.started_at.desc())
+    if start_date or end_date:
+        since, until = _parse_range(start_date, end_date, 3650)
+        q = q.where(Trip.started_at >= since, Trip.started_at <= until)
+    trips = db.scalars(q).all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "started_at", "ended_at", "duration_min", "distance_km", "distance_miles",
+        "soc_start_pct", "soc_end_pct", "kwh_used", "efficiency_kwh_100km",
+        "avg_speed_kmh", "outdoor_temp_c", "start_address", "end_address",
+        "start_lat", "start_lon", "end_lat", "end_lon",
+    ])
+    for t in trips:
+        duration_min = None
+        if t.started_at and t.ended_at:
+            duration_min = round((t.ended_at - t.started_at).total_seconds() / 60)
+        writer.writerow([
+            iso_utc(t.started_at), iso_utc(t.ended_at), duration_min,
+            t.distance_km, t.distance_miles,
+            t.soc_start_pct, t.soc_end_pct,
+            t.kwh_used, t.efficiency_kwh_100km, t.avg_speed_kmh,
+            t.outdoor_temp_c, t.start_address, t.end_address,
+            t.start_lat, t.start_lon, t.end_lat, t.end_lon,
+        ])
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=trips.csv"},
+    )
+
+
+@router.delete("/{trip_id}", status_code=204)
+def delete_trip(trip_id: int, db: Session = Depends(get_db)):
+    trip = db.get(Trip, trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    for pt in db.scalars(select(TripPoint).where(TripPoint.trip_id == trip_id)).all():
+        db.delete(pt)
+    db.delete(trip)
+    db.commit()
 
 
 def _trip_to_dict(t: Trip) -> dict:

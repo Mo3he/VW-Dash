@@ -1,4 +1,5 @@
 """WebSocket connection manager and broadcaster."""
+import asyncio
 import json
 import logging
 from typing import Any
@@ -7,27 +8,33 @@ from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
-_connections: list[WebSocket] = []
+_connections: set[WebSocket] = set()
+_lock = asyncio.Lock()
 
 
 async def connect(ws: WebSocket) -> None:
     await ws.accept()
-    _connections.append(ws)
+    async with _lock:
+        _connections.add(ws)
     logger.debug("WS client connected (%d total)", len(_connections))
 
 
-def disconnect(ws: WebSocket) -> None:
-    _connections.remove(ws)
+async def disconnect(ws: WebSocket) -> None:
+    async with _lock:
+        _connections.discard(ws)
     logger.debug("WS client disconnected (%d total)", len(_connections))
 
 
 async def broadcast(payload: dict[str, Any]) -> None:
     text = json.dumps(payload)
-    dead: list[WebSocket] = []
-    for ws in list(_connections):
+    async with _lock:
+        snapshot = set(_connections)
+    dead: set[WebSocket] = set()
+    for ws in snapshot:
         try:
             await ws.send_text(text)
         except Exception:
-            dead.append(ws)
-    for ws in dead:
-        _connections.remove(ws)
+            dead.add(ws)
+    if dead:
+        async with _lock:
+            _connections -= dead

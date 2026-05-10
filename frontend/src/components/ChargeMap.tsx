@@ -1,37 +1,37 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChargeLocation } from "@/lib/types";
 import { api } from "@/lib/api";
 
-// Leaflet must be loaded client-side only — dynamic import keeps it out of SSR
-let LeafletLoaded = false;
-
 function ChargeMapInner({ locations }: { locations: ChargeLocation[] }) {
   const id = "charge-map";
+  const mapRef = useRef<import("leaflet").Map | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    // Avoid re-initialising if the map div already has a Leaflet instance
-    const container = document.getElementById(id) as HTMLElement & { _leaflet_id?: number };
-    if (container?._leaflet_id) return;
+    if (typeof window === "undefined" || !locations.length) return;
 
     import("leaflet").then((L) => {
-      // Fix default marker icon paths broken by webpack
-      if (!LeafletLoaded) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        delete (L.Icon.Default.prototype as any)._getIconUrl;
-        L.Icon.Default.mergeOptions({
-          iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-          iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-          shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-        });
-        LeafletLoaded = true;
+      const container = document.getElementById(id);
+      if (!container) return;
+
+      // Tear down any previous instance before re-initialising
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
       }
 
-      if (!locations.length) return;
+      // Fix default marker icon paths broken by webpack
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+        shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+      });
 
       const map = L.map(id, { zoomControl: true });
+      mapRef.current = map;
+
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
       }).addTo(map);
@@ -40,7 +40,7 @@ function ChargeMapInner({ locations }: { locations: ChargeLocation[] }) {
 
       locations.forEach((loc) => {
         const ratio = loc.total_kwh / maxKwh;
-        const r = Math.round(8 + ratio * 16); // radius 8–24px
+        const r = Math.round(8 + ratio * 16);
         const opacity = 0.5 + ratio * 0.5;
 
         const circle = L.circleMarker([loc.latitude, loc.longitude], {
@@ -64,12 +64,9 @@ function ChargeMapInner({ locations }: { locations: ChargeLocation[] }) {
     });
 
     return () => {
-      // Cleanup on unmount
-      const el = document.getElementById(id) as HTMLElement & { _leaflet_id?: number };
-      if (el?._leaflet_id) {
-        import("leaflet").then((L) => {
-          L.map(id).remove();
-        }).catch(() => {});
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
       }
     };
   }, [locations]);
@@ -93,7 +90,6 @@ export default function ChargeMap() {
       setLoaded(true);
     }).catch(() => setLoaded(true));
 
-    // Load leaflet CSS once
     if (!document.getElementById("leaflet-css")) {
       const link = document.createElement("link");
       link.id = "leaflet-css";

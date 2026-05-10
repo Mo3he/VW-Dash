@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { Trip } from "@/lib/types";
-import { Zap, Gauge, MapPin, ChevronDown } from "lucide-react";
+import { Zap, Gauge, MapPin, ChevronDown, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import TripMap from "@/components/TripMap";
 import { api } from "@/lib/api";
@@ -11,6 +11,7 @@ import { fmtDateTime } from "@/lib/format";
 interface Props {
   trips: Trip[];
   total: number;
+  onDelete?: (id: number) => void;
 }
 
 function formatDuration(min: number | null) {
@@ -31,10 +32,25 @@ function efficiencyColor(kwh: number | null): string {
 
 type RouteCache = Record<number, { lat: number; lon: number }[]>;
 
-export default function TripList({ trips, total }: Props) {
+export default function TripList({ trips, total, onDelete }: Props) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [routeCache, setRouteCache] = useState<RouteCache>({});
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const tz = useTimezone();
+
+  async function handleDelete(e: React.MouseEvent, id: number) {
+    e.stopPropagation();
+    if (!confirm("Delete this trip?")) return;
+    setDeletingId(id);
+    try {
+      await api.trips.delete(id);
+      onDelete?.(id);
+    } catch {
+      // ignore
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function toggleTrip(id: number) {
     if (expandedId === id) {
@@ -69,6 +85,17 @@ export default function TripList({ trips, total }: Props) {
         >
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm text-white font-medium">{fmtDateTime(t.started_at, tz)}</div>
+            {onDelete && (
+              <button
+                type="button"
+                onClick={(e) => handleDelete(e, t.id)}
+                disabled={deletingId === t.id}
+                className="p-1 text-gray-600 hover:text-red-400 transition-colors disabled:opacity-40"
+                title="Delete trip"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
           </div>
 
           {/* Location row */}

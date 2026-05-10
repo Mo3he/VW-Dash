@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { Zap, Pencil, X, Check, MapPin } from "lucide-react";
+import { Zap, Pencil, X, Check, MapPin, Trash2, ChevronDown } from "lucide-react";
+import ChargingCurve from "@/components/ChargingCurve";
 import type { ChargingSession } from "@/lib/types";
 import { api } from "@/lib/api";
 import clsx from "clsx";
@@ -11,6 +12,7 @@ interface Props {
   sessions: ChargingSession[];
   total: number;
   onSessionUpdated: (updated: ChargingSession) => void;
+  onSessionDeleted?: (id: number) => void;
 }
 
 interface EditState {
@@ -47,12 +49,14 @@ function sessionToEditState(s: ChargingSession): EditState {
   };
 }
 
-export default function ChargingSessionList({ sessions, total, onSessionUpdated }: Props) {
+export default function ChargingSessionList({ sessions, total, onSessionUpdated, onSessionDeleted }: Props) {
   const tz = useTimezone();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   function startEdit(s: ChargingSession) {
     setEditingId(s.id);
@@ -137,13 +141,36 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                   </span>
                 )}
                 {!isEditing ? (
-                  <button
-                    onClick={() => startEdit(s)}
-                    className="p-1 text-gray-600 hover:text-gray-300 transition"
-                    title="Edit session"
-                  >
-                    <Pencil size={13} />
-                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => startEdit(s)}
+                      className="p-1 text-gray-600 hover:text-gray-300 transition"
+                      title="Edit session"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    {onSessionDeleted && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm("Delete this session?")) return;
+                          setDeletingId(s.id);
+                          try {
+                            await api.charging.deleteSession(s.id);
+                            onSessionDeleted(s.id);
+                          } catch {
+                            // ignore
+                          } finally {
+                            setDeletingId(null);
+                          }
+                        }}
+                        disabled={deletingId === s.id}
+                        className="p-1 text-gray-600 hover:text-red-400 transition disabled:opacity-40"
+                        title="Delete session"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex gap-1">
                     <button
@@ -327,6 +354,20 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                     {formatDuration(s.duration_min)}
                   </div>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(expandedId === s.id ? null : s.id)}
+                  className="w-full flex items-center justify-center gap-1 mt-2 text-xs text-gray-600 hover:text-gray-400 transition"
+                >
+                  <ChevronDown
+                    size={13}
+                    className={clsx("transition-transform", expandedId === s.id && "rotate-180")}
+                  />
+                  {expandedId === s.id ? "Hide curve" : "Show curve"}
+                </button>
+
+                {expandedId === s.id && <ChargingCurve sessionId={s.id} />}
               </>
             )}
           </div>

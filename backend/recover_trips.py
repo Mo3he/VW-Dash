@@ -129,7 +129,8 @@ def recover(since: datetime, dry_run: bool) -> None:
 
             if seg_start.soc_pct and seg_end.soc_pct and seg_start.soc_pct > seg_end.soc_pct:
                 delta_soc = seg_start.soc_pct - seg_end.soc_pct
-                kwh_used = round(delta_soc / 100 * 77.0, 2)
+                from config import settings as _settings
+                kwh_used = round(delta_soc / 100 * _settings.battery_capacity_kwh, 2)
                 if distance_km and distance_km > 0:
                     efficiency = round(kwh_used / distance_km * 100, 1)
 

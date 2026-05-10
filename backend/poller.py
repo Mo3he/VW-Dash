@@ -3,9 +3,13 @@ from __future__ import annotations
 Polls the WeConnect API and persists snapshots + derived session/trip records.
 Runs as an APScheduler background job inside the FastAPI process.
 """
+import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+import queue
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -16,11 +20,17 @@ from geocoder import reverse_geocode
 from models import ChargingSession, Event, Trip, TripPoint, VehicleSnapshot
 from ws import broadcast
 from utils import iso_utc
+import webhook
 
 logger = logging.getLogger(__name__)
 
 # --- WeConnect instance (created once at startup) ---
 _weconnect: Any = None
+_wc_fail_count: int = 0          # consecutive login failures for backoff
+_wc_next_retry: datetime | None = None   # earliest time to retry after backoff
+
+# Serialize poll() so a scheduler tick and a manual trigger never overlap
+_poll_lock = threading.Lock()
 
 # State carried between poll cycles to detect session boundaries
 _prev_charging_state: str | None = None
@@ -34,6 +44,59 @@ _prev_climatisation_state: str | None = None
 _prev_locked: bool | None = None
 _prev_plug_connected: bool | None = None
 
+# Maximum breadcrumbs per trip before we stop recording (prevents unbounded growth)
+_TRIP_POINT_CAP = 500
+_trip_point_count: int = 0          # resets when a new trip starts
+# Force-close a trip that has been open longer than this
+_TRIP_MAX_DURATION_H = 24
+
+# --- Background geocoding queue ---
+_geo_queue: queue.Queue = queue.Queue()
+_geo_thread_started = False
+
+
+def _geocoder_worker() -> None:
+    """Background thread: drain the geocoding queue at ≤1 req/sec."""
+    while True:
+        try:
+            item = _geo_queue.get(timeout=60)
+        except queue.Empty:
+            continue
+        try:
+            kind = item["kind"]
+            obj_id = item["id"]
+            db = SessionLocal()
+            try:
+                if kind == "trip":
+                    trip = db.get(Trip, obj_id)
+                    if trip:
+                        if trip.start_lat and trip.start_lon and not trip.start_address:
+                            trip.start_address = reverse_geocode(trip.start_lat, trip.start_lon)
+                        if trip.end_lat and trip.end_lon and not trip.end_address:
+                            trip.end_address = reverse_geocode(trip.end_lat, trip.end_lon)
+                        db.commit()
+                elif kind == "session":
+                    session = db.get(ChargingSession, obj_id)
+                    if session and session.latitude and session.longitude and not session.location_name:
+                        session.location_name = reverse_geocode(session.latitude, session.longitude)
+                        db.commit()
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.warning("Geocoder worker error: %s", exc)
+        finally:
+            _geo_queue.task_done()
+
+
+def _queue_geocode(kind: str, obj_id: int, *_coords) -> None:
+    """Push a geocoding job onto the background queue (non-blocking)."""
+    global _geo_thread_started
+    if not _geo_thread_started:
+        t = threading.Thread(target=_geocoder_worker, daemon=True)
+        t.start()
+        _geo_thread_started = True
+    _geo_queue.put({"kind": kind, "id": obj_id})
+
 
 def _emit_event(db: Session, event_type: str, detail: str | None = None) -> None:
     db.add(Event(occurred_at=datetime.now(timezone.utc), event_type=event_type, detail=detail))
@@ -42,6 +105,7 @@ def _emit_event(db: Session, event_type: str, detail: str | None = None) -> None
 def init_state_from_db() -> None:
     """Recover in-memory trip/charging state from the DB after a restart."""
     global _active_trip_id, _trip_start_odometer, _active_charging_session_id, _prev_odometer
+    global _trip_point_count
 
     db = SessionLocal()
     try:
@@ -54,6 +118,11 @@ def init_state_from_db() -> None:
         if row:
             _active_trip_id = row[0]
             logger.info("Resuming open trip id=%d", _active_trip_id)
+            # Recover how many breadcrumbs already exist for this trip
+            count_row = db.execute(_text(
+                "SELECT COUNT(*) FROM trip_points WHERE trip_id = :id"
+            ), {"id": _active_trip_id}).fetchone()
+            _trip_point_count = count_row[0] if count_row else 0
 
         # Resume any open charging session
         row = db.execute(_text(
@@ -70,7 +139,6 @@ def init_state_from_db() -> None:
         if row:
             _prev_odometer = row[0]
             if _active_trip_id:
-                # Also try to recover trip start odometer from the snapshot nearest to trip start
                 trip_row = db.execute(_text(
                     "SELECT started_at FROM trips WHERE id = :id"
                 ), {"id": _active_trip_id}).fetchone()
@@ -86,10 +154,18 @@ def init_state_from_db() -> None:
         db.close()
 
 
+def _backoff_seconds(fail_count: int) -> float:
+    """Exponential backoff: 30s, 60s, 120s, 240s, capped at 600s."""
+    return min(30 * (2 ** (fail_count - 1)), 600)
+
+
 def init_weconnect() -> None:
-    global _weconnect
+    global _weconnect, _wc_fail_count, _wc_next_retry
     if not settings.vw_username or not settings.vw_password:
         logger.info("No VW credentials configured — skipping WeConnect login")
+        return
+    if _wc_next_retry and datetime.now(timezone.utc) < _wc_next_retry:
+        logger.debug("WeConnect login backoff active — skipping until %s", _wc_next_retry)
         return
     try:
         from weconnect import weconnect as wc
@@ -102,16 +178,23 @@ def init_weconnect() -> None:
             loginOnInit=False,
         )
         _weconnect.login()
+        _wc_fail_count = 0
+        _wc_next_retry = None
         logger.info("WeConnect login successful")
     except Exception as exc:
-        logger.error("WeConnect login failed: %s", exc)
+        _wc_fail_count += 1
+        delay = _backoff_seconds(_wc_fail_count)
+        _wc_next_retry = datetime.now(timezone.utc) + timedelta(seconds=delay)
+        logger.error("WeConnect login failed (attempt %d, retry in %.0fs): %s", _wc_fail_count, delay, exc)
         _weconnect = None
 
 
 def reset_weconnect() -> None:
     """Tear down the existing session and re-authenticate (called after credential change)."""
-    global _weconnect
+    global _weconnect, _wc_fail_count, _wc_next_retry
     _weconnect = None
+    _wc_fail_count = 0
+    _wc_next_retry = None
     init_weconnect()
 
 
@@ -160,7 +243,6 @@ def _val(obj, attr: str):
     try:
         a = getattr(obj, attr)
         v = a.value if hasattr(a, "value") else a
-        # Enums have a nested .value; plain scalars don't
         if hasattr(v, "value"):
             return v.value
         return v
@@ -259,6 +341,14 @@ def _extract_snapshot(vehicle) -> dict:
             if t_min is not None and t_max is not None:
                 data["battery_temp_c"] = round((t_min + t_max) / 2 - 273.15, 1)
 
+        # Outdoor temperature — values are in Kelvin  (domain: measurements)
+        ot = _domain(vehicle, "measurements", "outsideTemperatureStatus")
+        if ot:
+            car_timestamps.append(ts) if (ts := _car_ts(ot)) else None
+            temp_k = _safe_float(_val(ot, "temperatureOutside_K"))
+            if temp_k is not None:
+                data["outdoor_temp_c"] = round(temp_k - 273.15, 1)
+
     except Exception as exc:
         logger.warning("Error extracting snapshot: %s", exc)
 
@@ -273,7 +363,6 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
     is_charging = state == "CHARGING"
 
     if is_charging and _active_charging_session_id is None:
-        # Session started
         session = ChargingSession(
             started_at=snap.recorded_at,
             soc_start_pct=snap.soc_pct,
@@ -288,10 +377,10 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
         if snap.charge_power_kw and snap.charge_power_kw > 0:
             _charging_power_samples.append(snap.charge_power_kw)
         _emit_event(db, "charging_started", f'{{"soc_pct": {snap.soc_pct}}}')
+        webhook.fire("charging_started", {"session_id": session.id, "soc_pct": snap.soc_pct, "charge_type": snap.charge_type})
         logger.info("Charging session %d started (SOC %.0f%%)", session.id, snap.soc_pct or 0)
 
     elif is_charging and _active_charging_session_id is not None:
-        # Mid-session: accumulate power samples and update peak
         if snap.charge_power_kw and snap.charge_power_kw > 0:
             _charging_power_samples.append(snap.charge_power_kw)
         session = db.get(ChargingSession, _active_charging_session_id)
@@ -300,14 +389,13 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
                 session.peak_power_kw = snap.charge_power_kw
 
     elif not is_charging and _active_charging_session_id is not None:
-        # Session ended
         session = db.get(ChargingSession, _active_charging_session_id)
         if session:
             session.ended_at = snap.recorded_at
             session.soc_end_pct = snap.soc_pct
             if session.soc_start_pct and snap.soc_pct:
                 delta_soc = snap.soc_pct - session.soc_start_pct
-                session.kwh_added = round(delta_soc / 100 * 77.0, 2)
+                session.kwh_added = round(delta_soc / 100 * settings.battery_capacity_kwh, 2)
                 session.cost_per_kwh = settings.electricity_rate_per_kwh
                 session.cost = round(session.kwh_added * settings.electricity_rate_per_kwh, 2)
                 if snap.range_km and snap.soc_pct:
@@ -318,11 +406,10 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
                 session.avg_power_kw = round(
                     sum(_charging_power_samples) / len(_charging_power_samples), 2
                 )
-            # Geocode charging location
-            if session.latitude and session.longitude:
-                session.location_name = reverse_geocode(session.latitude, session.longitude)
             _emit_event(db, "charging_ended", f'{{"soc_pct": {snap.soc_pct}, "kwh_added": {session.kwh_added}}}')
+            webhook.fire("charging_ended", {"session_id": session.id, "soc_pct": snap.soc_pct, "kwh_added": session.kwh_added})
             logger.info("Charging session %d ended (SOC %.0f%%)", session.id, snap.soc_pct or 0)
+            _queue_geocode("session", session.id)
         _active_charging_session_id = None
         _charging_power_samples = []
 
@@ -330,16 +417,54 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
     _prev_soc = snap.soc_pct
 
 
+def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
+    """Finalize an active trip row. Also called for the 24h force-close."""
+    global _trip_point_count
+    odometer = snap.odometer_km
+    trip.ended_at = snap.recorded_at
+    trip.soc_end_pct = snap.soc_pct
+    trip.end_lat = snap.latitude
+    trip.end_lon = snap.longitude
+    dist: float | None = None
+    if odometer and _trip_start_odometer:
+        raw_dist = odometer - _trip_start_odometer
+        if raw_dist > 0:
+            dist = raw_dist
+            trip.distance_km = round(dist, 2)
+            trip.distance_miles = round(dist * 0.621371, 2)
+            duration_h = (snap.recorded_at - trip.started_at).total_seconds() / 3600
+            if duration_h > 0:
+                trip.avg_speed_kmh = round(dist / duration_h, 1)
+    if trip.soc_start_pct and snap.soc_pct and trip.soc_start_pct > snap.soc_pct:
+        kwh = (trip.soc_start_pct - snap.soc_pct) / 100 * settings.battery_capacity_kwh
+        trip.kwh_used = round(kwh, 2)
+        if dist and dist > 0:
+            trip.efficiency_kwh_100km = round(kwh / dist * 100, 1)
+    _emit_event(db, "trip_ended", f'{{"distance_km": {trip.distance_km}, "kwh_used": {trip.kwh_used}}}')
+    webhook.fire("trip_ended", {"trip_id": trip.id, "distance_km": trip.distance_km, "kwh_used": trip.kwh_used})
+    logger.info("Trip %d ended (%.1f km)", trip.id, trip.distance_km or 0)
+    _queue_geocode("trip", trip.id)
+    _trip_point_count = 0
+
+
 def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
-    global _active_trip_id, _prev_odometer, _trip_start_odometer
+    global _active_trip_id, _prev_odometer, _trip_start_odometer, _trip_point_count
 
     odometer = snap.odometer_km
     charging = snap.charging_state == "CHARGING"
     plug_in = snap.plug_connected
-
-    # Moving = not charging and not plugged in.
-    # Note: plug_in=None (unknown) is treated as not-plugged-in so we don't miss trips.
     is_moving = not charging and not plug_in
+
+    # Force-close stale open trip before starting a new one
+    if _active_trip_id is not None:
+        trip = db.get(Trip, _active_trip_id)
+        if trip and trip.started_at:
+            age_h = (datetime.now(timezone.utc) - trip.started_at.replace(tzinfo=timezone.utc)).total_seconds() / 3600
+            if age_h >= _TRIP_MAX_DURATION_H:
+                logger.warning("Force-closing trip %d — open for %.1fh", trip.id, age_h)
+                _close_trip(db, trip, snap)
+                _active_trip_id = None
+                _trip_start_odometer = None
 
     if is_moving and _active_trip_id is None:
         trip = Trip(
@@ -352,45 +477,25 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
         db.add(trip)
         db.flush()
         _active_trip_id = trip.id
-        _trip_start_odometer = odometer  # use current odometer as baseline; may be None
+        _trip_start_odometer = odometer
+        _trip_point_count = 0
         _emit_event(db, "trip_started", f'{{"soc_pct": {snap.soc_pct}}}')
+        webhook.fire("trip_started", {"trip_id": trip.id, "soc_pct": snap.soc_pct})
 
     elif is_moving and _active_trip_id is not None:
-        # Mid-trip: record GPS breadcrumb
-        if snap.latitude and snap.longitude:
+        if snap.latitude and snap.longitude and _trip_point_count < _TRIP_POINT_CAP:
             db.add(TripPoint(
                 trip_id=_active_trip_id,
                 recorded_at=snap.recorded_at,
                 latitude=snap.latitude,
                 longitude=snap.longitude,
             ))
+            _trip_point_count += 1
 
     elif not is_moving and _active_trip_id is not None:
         trip = db.get(Trip, _active_trip_id)
-        if trip and odometer and _trip_start_odometer:
-            trip.ended_at = snap.recorded_at
-            trip.soc_end_pct = snap.soc_pct
-            trip.end_lat = snap.latitude
-            trip.end_lon = snap.longitude
-            dist = odometer - _trip_start_odometer
-            if dist > 0:
-                trip.distance_km = round(dist, 2)
-                trip.distance_miles = round(dist * 0.621371, 2)
-                duration_h = (snap.recorded_at - trip.started_at).total_seconds() / 3600
-                if duration_h > 0:
-                    trip.avg_speed_kmh = round(dist / duration_h, 1)
-            if trip.soc_start_pct and snap.soc_pct and trip.soc_start_pct > snap.soc_pct:
-                kwh = (trip.soc_start_pct - snap.soc_pct) / 100 * 77.0
-                trip.kwh_used = round(kwh, 2)
-                if dist and dist > 0:
-                    trip.efficiency_kwh_100km = round(kwh / dist * 100, 1)
-            # Geocode start and end addresses
-            if trip.start_lat and trip.start_lon:
-                trip.start_address = reverse_geocode(trip.start_lat, trip.start_lon)
-            if trip.end_lat and trip.end_lon:
-                trip.end_address = reverse_geocode(trip.end_lat, trip.end_lon)
-            _emit_event(db, "trip_ended", f'{{"distance_km": {trip.distance_km}, "kwh_used": {trip.kwh_used}}}')
-            logger.info("Trip %d ended (%.1f km)", trip.id, trip.distance_km or 0)
+        if trip:
+            _close_trip(db, trip, snap)
         _active_trip_id = None
         _trip_start_odometer = None
 
@@ -424,6 +529,18 @@ def _update_misc_events(db: Session, snap: VehicleSnapshot) -> None:
 
 def poll() -> None:
     """Main poll callback — called by APScheduler every N seconds."""
+    global _weconnect
+
+    if not _poll_lock.acquire(blocking=False):
+        logger.debug("Poll already in progress — skipping this tick")
+        return
+    try:
+        _do_poll()
+    finally:
+        _poll_lock.release()
+
+
+def _do_poll() -> None:
     global _weconnect
 
     if _weconnect is None:
@@ -461,8 +578,6 @@ def poll() -> None:
     finally:
         db.close()
 
-    # Push live update to all WebSocket clients
-    import asyncio
     payload = {
         "type": "snapshot",
         "soc_pct": snap.soc_pct,

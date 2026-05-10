@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  devIndicators: { appIsrStatus: false, buildActivity: false },
+  devIndicators: { buildActivity: false, appIsrStatus: false },
   async rewrites() {
     return [
       {

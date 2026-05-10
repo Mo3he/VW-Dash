@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef } from "react";
 import { Eye, EyeOff, Upload } from "lucide-react";
+import { authHeaders, setToken } from "@/lib/auth";
 
 interface ServerSettings {
   vw_username: string;
@@ -28,6 +29,8 @@ interface FormState {
   vehicle_name: string;
   battery_capacity_kwh: string;
   timezone: string;
+  access_token: string;
+  webhook_url: string;
 }
 
 interface Props {
@@ -47,6 +50,8 @@ function toForm(s: ServerSettings | null): FormState {
     vehicle_name: s?.vehicle_name ?? "ID.4",
     battery_capacity_kwh: String(s?.battery_capacity_kwh ?? 77),
     timezone: s?.timezone ?? "UTC",
+    access_token: "",
+    webhook_url: "",
   };
 }
 
@@ -63,7 +68,11 @@ function GeocodeBackfill() {
   async function run() {
     setError(null);
     try {
-      const res = await fetch("/api/import/geocode-backfill", { method: "POST" });
+      const { authHeaders } = await import("@/lib/auth");
+      const res = await fetch("/api/import/geocode-backfill", {
+        method: "POST",
+        headers: authHeaders(),
+      });
       if (!res.ok) throw new Error(await res.text());
       setStarted(true);
     } catch (err) {
@@ -113,7 +122,11 @@ export default function SettingsForm({ initial }: Props) {
       fd.append("file", importFile);
       fd.append("battery_kwh", form.battery_capacity_kwh);
       fd.append("wipe", String(importWipe));
-      const res = await fetch("/api/import/vwsfriend", { method: "POST", body: fd });
+      const res = await fetch("/api/import/vwsfriend", {
+        method: "POST",
+        headers: authHeaders(),
+        body: fd,
+      });
       if (!res.ok) throw new Error(await res.text());
       setImportResult(await res.json());
       setImportFile(null);
@@ -149,18 +162,51 @@ export default function SettingsForm({ initial }: Props) {
     // Only send password if user typed something new
     if (form.vw_password) body.vw_password = form.vw_password;
 
+    if (form.access_token) body.access_token = form.access_token;
+    if (form.webhook_url !== undefined) body.webhook_url = form.webhook_url;
+
     try {
       const res = await fetch("/api/settings", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
+      // If a new access token was set, persist it locally too
+      if (form.access_token) {
+        setToken(form.access_token);
+      }
       setSaved(true);
-      setForm((f) => ({ ...f, vw_password: "" })); // clear password field after save
+      setForm((f) => ({ ...f, vw_password: "", access_token: "", webhook_url: "" }));
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       setError(String(err));
+    }
+  }
+
+  const [testStatus, setTestStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [testDetail, setTestDetail] = useState<string>("");
+
+  async function handleTestConnection() {
+    setTestStatus("loading");
+    setTestDetail("");
+    try {
+      const res = await fetch("/api/settings/test-connection", {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const vins = data.vehicles?.join(", ") || "no vehicles found";
+        setTestStatus("ok");
+        setTestDetail(vins);
+      } else {
+        setTestStatus("error");
+        setTestDetail(data.detail || "Unknown error");
+      }
+    } catch (err) {
+      setTestStatus("error");
+      setTestDetail(String(err));
     }
   }
 
@@ -238,6 +284,21 @@ export default function SettingsForm({ initial }: Props) {
           />
           <span className="text-xs text-gray-600">Shown in the top bar</span>
         </label>
+
+        <button
+          type="button"
+          onClick={handleTestConnection}
+          disabled={testStatus === "loading"}
+          className="flex items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 text-white font-medium py-2.5 text-sm hover:bg-white/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {testStatus === "loading" ? "Testing…" : "Test VW connection"}
+        </button>
+        {testStatus === "ok" && (
+          <div className="text-xs text-green-400">Connected — VINs: {testDetail}</div>
+        )}
+        {testStatus === "error" && (
+          <div className="text-xs text-red-400">{testDetail}</div>
+        )}
       </div>
 
       {/* Cost & Range */}
@@ -318,11 +379,33 @@ export default function SettingsForm({ initial }: Props) {
           <span className="text-xs text-gray-500 uppercase tracking-wider">Timezone</span>
           <input
             type="text"
+            list="tz-list"
             value={form.timezone}
             onChange={(e) => set("timezone", e.target.value)}
             placeholder="e.g. Europe/London, America/New_York"
             className={inputClass}
           />
+          <datalist id="tz-list">
+            {[
+              "UTC",
+              "Europe/London","Europe/Dublin","Europe/Lisbon",
+              "Europe/Paris","Europe/Berlin","Europe/Amsterdam","Europe/Brussels",
+              "Europe/Rome","Europe/Madrid","Europe/Stockholm","Europe/Oslo","Europe/Copenhagen",
+              "Europe/Helsinki","Europe/Warsaw","Europe/Prague","Europe/Vienna","Europe/Zurich",
+              "Europe/Athens","Europe/Bucharest","Europe/Sofia","Europe/Istanbul",
+              "Europe/Moscow","Europe/Kyiv",
+              "America/New_York","America/Chicago","America/Denver","America/Los_Angeles",
+              "America/Phoenix","America/Anchorage","Pacific/Honolulu",
+              "America/Toronto","America/Vancouver","America/Edmonton","America/Winnipeg","America/Halifax",
+              "America/Sao_Paulo","America/Argentina/Buenos_Aires","America/Santiago","America/Bogota",
+              "America/Mexico_City","America/Lima",
+              "Asia/Dubai","Asia/Riyadh","Asia/Tehran","Asia/Karachi","Asia/Kolkata",
+              "Asia/Dhaka","Asia/Bangkok","Asia/Singapore","Asia/Shanghai","Asia/Tokyo",
+              "Asia/Seoul","Asia/Hong_Kong","Asia/Taipei","Asia/Jakarta",
+              "Australia/Sydney","Australia/Melbourne","Australia/Brisbane","Australia/Perth","Pacific/Auckland",
+              "Africa/Cairo","Africa/Nairobi","Africa/Johannesburg","Africa/Lagos",
+            ].map((tz) => <option key={tz} value={tz} />)}
+          </datalist>
           <span className="text-xs text-gray-600">IANA timezone — used for all date and time display</span>
         </label>
       </div>
@@ -340,6 +423,39 @@ export default function SettingsForm({ initial }: Props) {
       {error && (
         <div className="text-center text-sm text-red-400">{error}</div>
       )}
+
+      {/* Security */}
+      <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-4">
+        <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">Security</div>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Access token</span>
+          <input
+            type="password"
+            value={form.access_token}
+            onChange={(e) => set("access_token", e.target.value)}
+            placeholder="Leave blank to disable authentication"
+            autoComplete="new-password"
+            className={inputClass}
+          />
+          <span className="text-xs text-gray-600">
+            If set, the dashboard requires this token to access the API. Stored in backend config. Leave blank to disable.
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Webhook URL</span>
+          <input
+            type="url"
+            value={form.webhook_url}
+            onChange={(e) => set("webhook_url", e.target.value)}
+            placeholder="https://ntfy.sh/my-topic or https://discord.com/api/webhooks/…"
+            className={inputClass}
+          />
+          <span className="text-xs text-gray-600">
+            POST JSON on charge/trip start and end. Leave blank to disable.
+          </span>
+        </label>
+      </div>
 
       {/* VWsFriend Import */}
       <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-4">

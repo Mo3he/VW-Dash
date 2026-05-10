@@ -1,9 +1,11 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { BatteryCharging, Car, MapPin, Settings, Route } from "lucide-react";
 import clsx from "clsx";
-import { useEffect, useState } from "react";
+import { useVehicleName } from "@/app/SettingsProvider";
+import { authHeaders } from "@/lib/auth";
 
 const links = [
   { href: "/", label: "Status", Icon: Car },
@@ -15,12 +17,13 @@ const links = [
 
 export default function Nav() {
   const pathname = usePathname();
-  const [vehicleName, setVehicleName] = useState<string | null>(null);
+  const vehicleName = useVehicleName();
+  const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/settings", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setVehicleName(d.vehicle_name ?? null))
+    fetch("/api/version", { headers: authHeaders() })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => d && setVersion(d.version ?? null))
       .catch(() => {});
   }, []);
 
@@ -31,6 +34,9 @@ export default function Nav() {
         <span className="text-white font-bold tracking-wide text-lg">VW Dash</span>
         {vehicleName && (
           <span className="text-[#00B0F0] text-xs font-medium">{vehicleName}</span>
+        )}
+        {version && (
+          <span className="text-gray-600 text-[10px]">v{version}</span>
         )}
         <div className="ml-auto flex items-center gap-2">
           <a

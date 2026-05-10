@@ -11,6 +11,8 @@ import type {
   VehicleSnapshot,
 } from "./types";
 
+import { authHeaders } from "./auth";
+
 // Server components can't use relative URLs — they need to hit the backend directly.
 // In the browser the Next.js dev-server proxy handles /api → backend.
 const BASE =
@@ -19,7 +21,10 @@ const BASE =
     : "/api";
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
+  const res = await fetch(`${BASE}${path}`, {
+    cache: "no-store",
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
 }
@@ -27,7 +32,10 @@ async function get<T>(path: string): Promise<T> {
 async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...authHeaders(),
+    },
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
@@ -38,10 +46,22 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function del(path: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(text || `${res.status} ${res.statusText}`);
+  }
+}
+
 async function patch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
     cache: "no-store",
   });
@@ -61,6 +81,7 @@ export const api = {
       get<VehicleSnapshot[]>(`/vehicle/history?start_date=${start}&end_date=${end}`),
     batteryHealth: (start?: string, end?: string) =>
       get<RangeHealth>(`/vehicle/battery-health${start ? `?start_date=${start}&end_date=${end}` : ""}`),
+    vampireDrain: (days = 30) => get<{ avg_drain_pct_per_h: number | null; total_soc_lost: number | null; events: unknown[] }>(`/vehicle/vampire-drain?days=${days}`),
     climate: (action: "start" | "stop") =>
       post<{ status: string; action: string; target_state: string }>(
         `/vehicle/climate?action=${action}`
@@ -76,6 +97,7 @@ export const api = {
     locations: () => get<ChargeLocation[]>(`/charging/locations`),
     updateSession: (id: number, body: Partial<ChargingSession>) =>
       patch<ChargingSession>(`/charging/sessions/${id}`, body),
+    deleteSession: (id: number) => del(`/charging/sessions/${id}`),
   },
   trips: {
     list: (limit = 20, offset = 0, start?: string, end?: string) =>
@@ -88,6 +110,7 @@ export const api = {
     popular: (limit = 10) => get<PopularRoute[]>(`/trips/popular?limit=${limit}`),
     journeys: (start: string, end: string) =>
       get<Journey[]>(`/trips/journeys?start_date=${start}&end_date=${end}`),
+    delete: (id: number) => del(`/trips/${id}`),
   },
   events: {
     list: (limit = 50, days = 3) =>

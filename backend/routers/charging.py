@@ -2,14 +2,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import csv
+import io
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from database import get_db
 from utils import iso_utc
-from models import ChargingSession
+from models import ChargingSession, VehicleSnapshot
 from config import settings
 
 
@@ -45,6 +48,36 @@ def list_sessions(
     ).all()
     total = db.scalar(select(func.count()).select_from(ChargingSession))
     return {"total": total, "sessions": [_session_to_dict(s) for s in sessions]}
+
+
+@router.get("/sessions/{session_id}/curve")
+def session_curve(session_id: int, db: Session = Depends(get_db)):
+    """Power (kW) and SoC readings from snapshots taken during a charging session."""
+    session = db.get(ChargingSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.started_at is None:
+        return {"points": []}
+    end = session.ended_at or datetime.now(timezone.utc)
+    snaps = db.scalars(
+        select(VehicleSnapshot)
+        .where(
+            VehicleSnapshot.recorded_at >= session.started_at,
+            VehicleSnapshot.recorded_at <= end,
+            VehicleSnapshot.charge_power_kw.is_not(None),
+        )
+        .order_by(VehicleSnapshot.recorded_at)
+    ).all()
+    return {
+        "points": [
+            {
+                "t": iso_utc(s.recorded_at),
+                "kw": s.charge_power_kw,
+                "soc": s.soc_pct,
+            }
+            for s in snaps
+        ]
+    }
 
 
 @router.get("/sessions/{session_id}")
@@ -98,6 +131,57 @@ def update_session(session_id: int, body: SessionUpdate, db: Session = Depends(g
     db.commit()
     db.refresh(session)
     return _session_to_dict(session)
+
+
+@router.get("/sessions/export.csv")
+def export_sessions_csv(
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    since = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc) if start_date else datetime(2000, 1, 1, tzinfo=timezone.utc)
+    until = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc).replace(hour=23, minute=59, second=59) if end_date else now
+    sessions = db.scalars(
+        select(ChargingSession)
+        .where(ChargingSession.started_at >= since, ChargingSession.started_at <= until)
+        .order_by(ChargingSession.started_at.desc())
+    ).all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "started_at", "ended_at", "duration_min",
+        "soc_start_pct", "soc_end_pct", "kwh_added", "kwh_added_real",
+        "range_added_km", "peak_power_kw", "charge_type",
+        "cost", "cost_per_kwh", "location_name", "latitude", "longitude",
+    ])
+    for s in sessions:
+        duration_min = None
+        if s.started_at and s.ended_at:
+            duration_min = round((s.ended_at - s.started_at).total_seconds() / 60)
+        writer.writerow([
+            iso_utc(s.started_at), iso_utc(s.ended_at), duration_min,
+            s.soc_start_pct, s.soc_end_pct, s.kwh_added, s.kwh_added_real,
+            s.range_added_km, s.peak_power_kw, s.charge_type,
+            s.cost, s.cost_per_kwh, s.location_name, s.latitude, s.longitude,
+        ])
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=charging_sessions.csv"},
+    )
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def delete_session(session_id: int, db: Session = Depends(get_db)):
+    session = db.get(ChargingSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    db.delete(session)
+    db.commit()
 
 
 @router.get("/locations")
@@ -182,6 +266,17 @@ def charging_stats(
     for c in top_chargers:
         c["total_kwh"] = round(c["total_kwh"], 1)
 
+    # Previous period
+    period_len = until - since
+    prev_until = since
+    prev_since = since - period_len
+    prev_sessions_all = db.scalars(
+        select(ChargingSession).where(ChargingSession.started_at >= prev_since, ChargingSession.started_at <= prev_until)
+    ).all()
+    prev_completed = [s for s in prev_sessions_all if s.ended_at is not None]
+    prev_kwh = sum(s.kwh_added or 0 for s in prev_completed)
+    prev_cost = sum(s.cost or 0 for s in prev_completed)
+
     return {
         "period_days": days,
         "session_count": len(completed),
@@ -199,6 +294,11 @@ def charging_stats(
         "electricity_rate": settings.electricity_rate_per_kwh,
         "currency_symbol": settings.currency_symbol,
         "currency_after": settings.currency_after,
+        "prev": {
+            "session_count": len(prev_completed),
+            "total_kwh": round(prev_kwh, 2),
+            "total_cost": round(prev_cost, 2),
+        },
     }
 
 

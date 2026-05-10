@@ -99,6 +99,7 @@ export interface ChargingStats {
   electricity_rate: number;
   currency_symbol: string;
   currency_after: boolean;
+  prev?: { session_count: number; total_kwh: number; total_cost: number };
 }
 
 export interface TripStats {
@@ -111,6 +112,7 @@ export interface TripStats {
   currency_symbol: string;
   currency_after: boolean;
   temp_efficiency: Record<string, number>;
+  prev?: { trip_count: number; total_km: number; total_kwh: number };
 }
 
 export interface RangeHealth {

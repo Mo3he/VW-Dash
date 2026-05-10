@@ -1,11 +1,6 @@
 # VW-Dash
 
-> **⚠️ Work in progress — not ready for use**
-> This project is under active development. Expect missing features, breaking changes, and rough edges. Do not rely on it for anything important.
-
 A self-hosted dashboard for VW ID. series electric vehicles (ID.3, ID.4, ID.7, and other WeConnect-compatible models) that tracks battery state, trips, charging sessions, and more — with live WebSocket updates.
-
-![Dashboard preview](docs/preview.png)
 
 ## Features
 
@@ -45,11 +40,20 @@ A self-hosted dashboard for VW ID. series electric vehicles (ID.3, ID.4, ID.7, a
 - State-of-health trend based on rated range
 
 ### Settings
-- VW WeConnect credentials and VIN
+- VW WeConnect credentials and VIN, with **Test connection** button
 - Vehicle name (shown in the top bar)
-- Currency symbol and position, electricity rate, rated range, poll interval
-- VWsFriend import — upload a backup file directly from the browser
+- Currency symbol and position, electricity rate, rated range, poll interval, battery capacity
+- IANA timezone selector for all date/time display
+- **Access token** — optional API authentication (required token shown as login gate in browser)
+- **Webhook URL** — POST JSON notifications to ntfy.sh, Discord, Slack, or any HTTP endpoint on charge/trip events
+- VWsFriend import — upload a backup file directly from the browser (idempotent; safe to re-run)
 - Geocode missing addresses — backfills location data for imported history
+
+### Analysis
+- CO₂ saved vs petrol (7 L/100 km baseline)
+- Vampire drain — average SoC loss per hour/day while parked
+- Charging curve (kW over time per session)
+- Period-over-period delta badges on all stat cards
 
 ## Quick start (Docker — recommended)
 
@@ -94,14 +98,29 @@ Everything is managed through the **Settings page** in the UI — no `.env` file
 | Setting | Default | Description |
 |---|---|---|
 | VW email | — | Your VW WeConnect email |
-| VW password | — | Your VW WeConnect password |
+| VW password | — | Your VW WeConnect password (encrypted at rest with `SECRET_KEY` env var) |
 | VIN | auto-detect | 17-character VIN (optional) |
 | Vehicle name | ID.4 | Shown in the top bar |
 | Poll interval | 300 s | How often to poll the VW API (min 60 s) |
-| Electricity rate | 0.13 / kWh | Used to estimate charging cost |
+| Electricity rate | 0.00 / kWh | Used to estimate charging cost |
 | Currency symbol | $ | Displayed next to costs |
 | Currency position | before | "$100" vs "100 kr" |
 | Rated range | 410 km | Used for battery health (ID.4 RWD = 410, AWD = 337, Pro S = 418) |
+| Battery capacity | 77 kWh | Used for cycle counting and efficiency (ID.4 77, ID.3 58, ID.7 86) |
+| Timezone | UTC | IANA zone for all date/time display |
+| Access token | — | If set, API and UI require this token (stored in `data/config.json`) |
+| Webhook URL | — | POST JSON on charge/trip events (ntfy.sh, Discord, Slack, custom) |
+
+### Security
+
+Password encryption: if the `SECRET_KEY` environment variable is set (any 32-byte string), the VW password is encrypted in `data/config.json` using Fernet symmetric encryption.
+
+API access control: set **Access token** in Settings. The dashboard will show a login gate. All API calls include `Authorization: Bearer <token>`.
+
+```bash
+# Docker — set SECRET_KEY in your compose environment
+SECRET_KEY=your-32-char-secret docker compose up -d
+```
 
 ## Importing from VWsFriend
 
@@ -128,16 +147,17 @@ Addresses are resolved automatically when trips and charging sessions close duri
 ```
 VW-Dash/
 ├── backend/
-│   ├── main.py              # FastAPI app, migrations
+│   ├── main.py              # FastAPI app, migrations, auth middleware
 │   ├── models.py            # SQLAlchemy models (Snapshot, Trip, TripPoint, ChargingSession, Event)
-│   ├── config.py            # Settings (env + config.json overlay)
+│   ├── config.py            # Settings (env + config.json overlay, Fernet password encryption)
 │   ├── poller.py            # VW API polling, trip/session detection, geocoding, event emission
 │   ├── geocoder.py          # Nominatim reverse geocoding helper
+│   ├── webhook.py           # Fire-and-forget webhook notifications
 │   ├── import_vwsfriend.py  # VWsFriend PostgreSQL backup importer
 │   └── routers/
-│       ├── vehicle.py
-│       ├── trips.py
-│       ├── charging.py
+│       ├── vehicle.py       # Snapshots, history, battery health, vampire drain
+│       ├── trips.py         # Trip list, stats, route, export CSV, delete
+│       ├── charging.py      # Sessions, stats, curve, export CSV, delete
 │       ├── events_router.py
 │       ├── import_router.py
 │       └── settings_router.py

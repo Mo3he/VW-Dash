@@ -6,8 +6,8 @@ apscheduler==3.10.4
 weconnect[Images]==0.60.11
 python-dotenv==1.0.1
 pydantic-settings==2.6.1
-websockets==14.1
 httpx==0.28.0
 aiosqlite==0.20.0
 eval_type_backport==0.2.0
 python-multipart==0.0.20
+cryptography==43.0.3

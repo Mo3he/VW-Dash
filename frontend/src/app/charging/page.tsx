@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { Download } from "lucide-react";
 import { api } from "@/lib/api";
+import { authHeaders } from "@/lib/auth";
 import type { ChargingSession, ChargingStats, RangeHealth } from "@/lib/types";
 import StatusCard from "@/components/StatusCard";
 import ChargeMap from "@/components/ChargeMap";
@@ -61,6 +63,11 @@ export default function ChargingPage() {
   const fmtCost = (n: number) =>
     after ? `${n.toFixed(2)} ${sym}` : `${sym}${n.toFixed(2)}`;
 
+  function pctDelta(current: number, prev: number | undefined): number | null {
+    if (prev == null || prev === 0) return null;
+    return ((current - prev) / prev) * 100;
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col gap-4">
@@ -74,7 +81,28 @@ export default function ChargingPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-white">Charging</h1>
-        <PeriodSelector value={range} onChange={setRange} />
+        <div className="flex items-center gap-2">
+          <a
+            href={`/api/charging/sessions/export.csv?start_date=${range.start}&end_date=${range.end}`}
+            onClick={async (e) => {
+              const token = authHeaders().Authorization;
+              if (!token) return;
+              e.preventDefault();
+              const res = await fetch(`/api/charging/sessions/export.csv?start_date=${range.start}&end_date=${range.end}`, { headers: authHeaders() });
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = "charging_sessions.csv"; a.click();
+              URL.revokeObjectURL(url);
+            }}
+            download="charging_sessions.csv"
+            title="Export CSV"
+            className="p-1.5 text-gray-500 hover:text-gray-300 transition"
+          >
+            <Download size={16} />
+          </a>
+          <PeriodSelector value={range} onChange={setRange} />
+        </div>
       </div>
 
       {stats && (
@@ -83,6 +111,7 @@ export default function ChargingPage() {
             <StatusCard
               label="Sessions"
               value={stats.session_count}
+              delta={pctDelta(stats.session_count, stats.prev?.session_count)}
             />
             <StatusCard
               label="Battery cycles"
@@ -92,10 +121,13 @@ export default function ChargingPage() {
               label="Energy added"
               value={`${stats.total_kwh} kWh`}
               sub={`avg ${stats.avg_kwh_per_session} kWh/session`}
+              delta={pctDelta(stats.total_kwh, stats.prev?.total_kwh)}
             />
             <StatusCard
               label="Estimated cost"
               value={fmtCost(stats.total_cost)}
+              delta={pctDelta(stats.total_cost, stats.prev?.total_cost)}
+              deltaInvert
             />
             <StatusCard
               label="Range added"
@@ -146,6 +178,11 @@ export default function ChargingPage() {
         sessions={sessions}
         total={total}
         onSessionUpdated={handleSessionUpdated}
+        onSessionDeleted={(id) => {
+          setSessions((prev) => prev.filter((s) => s.id !== id));
+          setTotal((n) => n - 1);
+          loadStats();
+        }}
       />
 
       {sessions.length < total && (

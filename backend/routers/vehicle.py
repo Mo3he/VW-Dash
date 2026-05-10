@@ -78,6 +78,65 @@ def battery_health(
     }
 
 
+@router.get("/vampire-drain")
+def vampire_drain(
+    days: int = Query(default=30, ge=1, le=3650),
+    min_park_hours: float = Query(default=2.0, ge=0.5),
+    db: Session = Depends(get_db),
+):
+    """
+    Detect SoC drops during parked periods (no charging, no driving).
+    Returns per-event drain and summary stats.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    snaps = db.scalars(
+        select(VehicleSnapshot)
+        .where(
+            VehicleSnapshot.recorded_at >= since,
+            VehicleSnapshot.soc_pct.is_not(None),
+        )
+        .order_by(VehicleSnapshot.recorded_at.asc())
+    ).all()
+
+    events = []
+    i = 0
+    while i < len(snaps) - 1:
+        s = snaps[i]
+        # Skip if charging or moving (charge_power_kw > 0 approximates charging)
+        if (s.charge_power_kw or 0) > 0:
+            i += 1
+            continue
+        # Find contiguous parked window (no charging)
+        j = i + 1
+        while j < len(snaps) and (snaps[j].charge_power_kw or 0) == 0:
+            j += 1
+        end_snap = snaps[j - 1]
+        duration_h = (end_snap.recorded_at - s.recorded_at).total_seconds() / 3600
+        if duration_h >= min_park_hours and s.soc_pct is not None and end_snap.soc_pct is not None:
+            drop = s.soc_pct - end_snap.soc_pct
+            if drop > 0:
+                drain_pct_per_h = drop / duration_h
+                events.append({
+                    "start": iso_utc(s.recorded_at),
+                    "end": iso_utc(end_snap.recorded_at),
+                    "duration_h": round(duration_h, 1),
+                    "soc_drop_pct": round(drop, 1),
+                    "drain_pct_per_h": round(drain_pct_per_h, 3),
+                })
+        i = j
+
+    if not events:
+        return {"events": [], "avg_drain_pct_per_h": None, "total_soc_lost": None}
+
+    avg_drain = sum(e["drain_pct_per_h"] for e in events) / len(events)
+    total_lost = sum(e["soc_drop_pct"] for e in events)
+    return {
+        "events": events[-20:],  # most recent 20
+        "avg_drain_pct_per_h": round(avg_drain, 3),
+        "total_soc_lost": round(total_lost, 1),
+    }
+
+
 @router.post("/climate")
 def control_climate(action: Literal["start", "stop"] = Query(...)):
     """Send a start/stop climatisation command to the vehicle."""

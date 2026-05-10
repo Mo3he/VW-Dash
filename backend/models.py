@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import Float, Integer, String, Boolean, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -12,7 +12,7 @@ class VehicleSnapshot(Base):
     __tablename__ = "vehicle_snapshots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
     # Battery / range
     soc_pct: Mapped[Optional[float]] = mapped_column(Float)
@@ -110,6 +110,6 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     event_type: Mapped[str] = mapped_column(String(48))
     detail: Mapped[Optional[str]] = mapped_column(Text)  # JSON string for extra context

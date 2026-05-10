@@ -12,6 +12,9 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database import SessionLocal
+
+def _default_battery_kwh() -> float:
+    return settings.battery_capacity_kwh
 from geocoder import reverse_geocode
 from import_vwsfriend import import_from_backup
 from models import ChargingSession, Trip
@@ -87,7 +90,7 @@ def _geocode_backfill_bg() -> None:
 @router.post("/vwsfriend")
 async def import_vwsfriend(
     file: UploadFile,
-    battery_kwh: float = Form(default=77.0),
+    battery_kwh: float = Form(default=0.0),
     wipe: bool = Form(default=False),
 ):
     suffix = os.path.splitext(file.filename or "")[1] or ".backup"
@@ -95,11 +98,12 @@ async def import_vwsfriend(
         tmp.write(await file.read())
         tmp_path = tmp.name
 
+    effective_kwh = battery_kwh if battery_kwh > 0 else settings.battery_capacity_kwh
     try:
         result = import_from_backup(
             backup_path=tmp_path,
             db_path=settings.db_path,
-            battery_kwh=battery_kwh,
+            battery_kwh=effective_kwh,
             wipe=wipe,
         )
     except Exception as exc:

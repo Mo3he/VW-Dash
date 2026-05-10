@@ -14,7 +14,7 @@ import urllib.request
 logger = logging.getLogger(__name__)
 
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
-_USER_AGENT = "VW-Dash/1.0 (self-hosted EV dashboard; contact@vwdash.local)"
+_USER_AGENT = "VW-Dash/1.0 (self-hosted EV dashboard; https://github.com/Mo3he/VW-Dash)"
 _last_request_at: float = 0.0
 
 

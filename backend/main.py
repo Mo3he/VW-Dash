@@ -9,8 +9,9 @@ if os.path.isdir(_LIBPQ_BIN) and _LIBPQ_BIN not in os.environ.get("PATH", ""):
     os.environ["PATH"] = _LIBPQ_BIN + ":" + os.environ.get("PATH", "")
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from config import settings
 from database import Base, engine
@@ -43,8 +44,13 @@ def _run_migrations() -> None:
             try:
                 conn.execute(text(stmt))
                 conn.commit()
-            except Exception:
-                pass  # column already exists
+            except Exception as exc:
+                msg = str(exc).lower()
+                if "duplicate column" in msg or "already exists" in msg:
+                    pass  # column already present — safe to ignore
+                else:
+                    logger.error("Migration failed: %s — %s", stmt, exc)
+                    raise
 
 
 @asynccontextmanager
@@ -70,10 +76,24 @@ app = FastAPI(title="VW Dash", lifespan=lifespan, redirect_slashes=False)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    token = settings.access_token
+    if not token:
+        return await call_next(request)
+    # Health check and WebSocket are exempt
+    if request.url.path in ("/api/health", "/ws"):
+        return await call_next(request)
+    auth = request.headers.get("Authorization", "")
+    if auth == f"Bearer {token}":
+        return await call_next(request)
+    return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
 app.include_router(vehicle.router)
 app.include_router(charging.router)
@@ -90,9 +110,20 @@ async def websocket_endpoint(ws: WebSocket):
         while True:
             await ws.receive_text()  # keep connection alive; we only push server→client
     except WebSocketDisconnect:
-        disconnect(ws)
+        await disconnect(ws)
 
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/version")
+def version():
+    import json as _json
+    pkg = os.path.join(os.path.dirname(__file__), "..", "frontend", "package.json")
+    try:
+        with open(pkg) as f:
+            return {"version": _json.load(f).get("version", "unknown")}
+    except Exception:
+        return {"version": "unknown"}

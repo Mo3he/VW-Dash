@@ -7,6 +7,7 @@ import SocGauge from "@/components/SocGauge";
 import StatusCard from "@/components/StatusCard";
 import SocHistory from "@/components/SocHistory";
 import EventsFeed from "@/components/EventsFeed";
+import VampireDrainCard from "@/components/VampireDrainCard";
 import { useVehicleLive } from "@/hooks/useVehicleLive";
 import type { VehicleSnapshot } from "@/lib/types";
 import { api } from "@/lib/api";
@@ -102,14 +103,24 @@ export default function DashboardClient({ initial, history }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col items-end gap-0.5">
-        <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <span className="text-gray-600">Car</span>
-          {carCapturedAt ? fmtTime(carCapturedAt, tz) : "—"}
+      <div className="flex items-start justify-between">
+        <div>
+          {!connected && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs px-2 py-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+              Offline
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <span className="text-gray-600">Server</span>
-          {recordedAt ? fmtTime(recordedAt, tz) : "—"}
+        <div className="flex flex-col items-end gap-0.5">
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className="text-gray-600">Car</span>
+            {carCapturedAt ? fmtTime(carCapturedAt, tz) : "—"}
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className="text-gray-600">Server</span>
+            {recordedAt ? fmtTime(recordedAt, tz) : "—"}
+          </div>
         </div>
       </div>
 
@@ -250,6 +261,8 @@ export default function DashboardClient({ initial, history }: Props) {
       </div>
 
       {history.length > 1 && <SocHistory initialData={history} />}
+
+      <VampireDrainCard />
 
       <EventsFeed pollTrigger={live?.recorded_at} />
 
