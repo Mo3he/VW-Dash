@@ -38,6 +38,53 @@ def _emit_event(db: Session, event_type: str, detail: str | None = None) -> None
     db.add(Event(occurred_at=datetime.now(timezone.utc), event_type=event_type, detail=detail))
 
 
+def init_state_from_db() -> None:
+    """Recover in-memory trip/charging state from the DB after a restart."""
+    global _active_trip_id, _trip_start_odometer, _active_charging_session_id, _prev_odometer
+
+    db = SessionLocal()
+    try:
+        from sqlalchemy import text as _text
+
+        # Resume any open trip
+        row = db.execute(_text(
+            "SELECT id FROM trips WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
+        )).fetchone()
+        if row:
+            _active_trip_id = row[0]
+            logger.info("Resuming open trip id=%d", _active_trip_id)
+
+        # Resume any open charging session
+        row = db.execute(_text(
+            "SELECT id FROM charging_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
+        )).fetchone()
+        if row:
+            _active_charging_session_id = row[0]
+            logger.info("Resuming open charging session id=%d", _active_charging_session_id)
+
+        # Seed prev odometer from the most recent snapshot that has one
+        row = db.execute(_text(
+            "SELECT odometer_km FROM vehicle_snapshots WHERE odometer_km IS NOT NULL ORDER BY recorded_at DESC LIMIT 1"
+        )).fetchone()
+        if row:
+            _prev_odometer = row[0]
+            if _active_trip_id:
+                # Also try to recover trip start odometer from the snapshot nearest to trip start
+                trip_row = db.execute(_text(
+                    "SELECT started_at FROM trips WHERE id = :id"
+                ), {"id": _active_trip_id}).fetchone()
+                if trip_row:
+                    odo_row = db.execute(_text(
+                        "SELECT odometer_km FROM vehicle_snapshots WHERE odometer_km IS NOT NULL AND recorded_at <= :t ORDER BY recorded_at DESC LIMIT 1"
+                    ), {"t": trip_row[0]}).fetchone()
+                    if odo_row:
+                        _trip_start_odometer = odo_row[0]
+    except Exception as exc:
+        logger.warning("Could not restore state from DB: %s", exc)
+    finally:
+        db.close()
+
+
 def init_weconnect() -> None:
     global _weconnect
     if not settings.vw_username or not settings.vw_password:
@@ -268,10 +315,11 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     charging = snap.charging_state == "CHARGING"
     plug_in = snap.plug_connected
 
-    # Moving = not charging, not plugged in, odometer increasing
+    # Moving = not charging and not plugged in.
+    # Note: plug_in=None (unknown) is treated as not-plugged-in so we don't miss trips.
     is_moving = not charging and not plug_in
 
-    if is_moving and _active_trip_id is None and _prev_odometer is not None:
+    if is_moving and _active_trip_id is None:
         trip = Trip(
             started_at=snap.recorded_at,
             soc_start_pct=snap.soc_pct,
@@ -282,7 +330,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
         db.add(trip)
         db.flush()
         _active_trip_id = trip.id
-        _trip_start_odometer = _prev_odometer
+        _trip_start_odometer = odometer  # use current odometer as baseline; may be None
         _emit_event(db, "trip_started", f'{{"soc_pct": {snap.soc_pct}}}')
 
     elif is_moving and _active_trip_id is not None:

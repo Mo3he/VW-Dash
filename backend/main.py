@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database import Base, engine
 from sqlalchemy import text
-from poller import init_weconnect, poll
+from poller import init_weconnect, init_state_from_db, poll
 from routers import charging, trips, vehicle, settings_router, import_router, events_router
 from ws import connect, disconnect
 
@@ -50,6 +50,7 @@ def _run_migrations() -> None:
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     _run_migrations()
+    init_state_from_db()
     init_weconnect()
     scheduler.add_job(
         poll,
