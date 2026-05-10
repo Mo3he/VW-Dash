@@ -308,6 +308,19 @@ export default function SettingsForm({ initial }: Props) {
         </div>
 
         <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Electricity rate (per kWh)</span>
+          <input
+            type="number"
+            value={form.electricity_rate_per_kwh}
+            onChange={(e) => set("electricity_rate_per_kwh", e.target.value)}
+            step="0.01"
+            min="0"
+            className={inputClass}
+          />
+          <span className="text-xs text-gray-600">Used to calculate charging cost and cost per 100 km</span>
+        </label>
+
+        <label className="flex flex-col gap-1">
           <span className="text-xs text-gray-500 uppercase tracking-wider">Currency symbol</span>
           <div className="flex gap-2 items-center">
             <input
