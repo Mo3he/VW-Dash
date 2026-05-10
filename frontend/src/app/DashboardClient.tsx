@@ -249,7 +249,7 @@ export default function DashboardClient({ initial, history }: Props) {
         )}
       </div>
 
-      {history.length > 1 && <SocHistory data={history} />}
+      {history.length > 1 && <SocHistory initialData={history} />}
 
       <EventsFeed pollTrigger={live?.recorded_at} />
 

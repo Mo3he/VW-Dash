@@ -57,6 +57,8 @@ export const api = {
     latest: () => get<VehicleSnapshot>("/vehicle/latest"),
     history: (hours = 24) =>
       get<VehicleSnapshot[]>(`/vehicle/history?hours=${hours}`),
+    historyByRange: (start: string, end: string) =>
+      get<VehicleSnapshot[]>(`/vehicle/history?start_date=${start}&end_date=${end}`),
     batteryHealth: (start?: string, end?: string) =>
       get<RangeHealth>(`/vehicle/battery-health${start ? `?start_date=${start}&end_date=${end}` : ""}`),
     climate: (action: "start" | "stop") =>

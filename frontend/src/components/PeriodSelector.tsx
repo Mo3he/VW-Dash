@@ -9,6 +9,7 @@ export interface DateRange {
 }
 
 const PRESETS = [
+  { label: "1d", days: 1 },
   { label: "7d", days: 7 },
   { label: "30d", days: 30 },
   { label: "90d", days: 90 },

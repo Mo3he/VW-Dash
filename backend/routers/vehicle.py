@@ -26,13 +26,21 @@ def latest_snapshot(db: Session = Depends(get_db)):
 
 @router.get("/history")
 def snapshot_history(
-    hours: int = Query(default=24, ge=1, le=168),
+    hours: int = Query(default=24, ge=1, le=999999),
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    now = datetime.now(timezone.utc)
+    if start_date:
+        since = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+        until = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc).replace(hour=23, minute=59, second=59) if end_date else now
+    else:
+        since = now - timedelta(hours=hours)
+        until = now
     snaps = db.scalars(
         select(VehicleSnapshot)
-        .where(VehicleSnapshot.recorded_at >= since)
+        .where(VehicleSnapshot.recorded_at >= since, VehicleSnapshot.recorded_at <= until)
         .order_by(VehicleSnapshot.recorded_at.asc())
     ).all()
     return [_snap_to_dict(s) for s in snaps]
