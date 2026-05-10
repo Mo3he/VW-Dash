@@ -23,6 +23,9 @@ class SessionUpdate(BaseModel):
     cost_per_kwh: Optional[float] = None
     charge_type: Optional[str] = None
     peak_power_kw: Optional[float] = None
+    location_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 router = APIRouter(prefix="/api/charging", tags=["charging"])
 
@@ -84,6 +87,12 @@ def update_session(session_id: int, body: SessionUpdate, db: Session = Depends(g
         session.peak_power_kw = body.peak_power_kw
     if body.kwh_added_real is not None:
         session.kwh_added_real = body.kwh_added_real
+    if body.location_name is not None:
+        session.location_name = body.location_name
+    if body.latitude is not None:
+        session.latitude = body.latitude
+    if body.longitude is not None:
+        session.longitude = body.longitude
 
     db.commit()
     db.refresh(session)
@@ -123,11 +132,18 @@ def charging_locations(db: Session = Depends(get_db)):
 @router.get("/stats")
 def charging_stats(
     days: int = Query(default=30, ge=1, le=3650),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    now = datetime.now(timezone.utc)
+    if start_date:
+        since = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+    else:
+        since = now - timedelta(days=days)
+    until = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc).replace(hour=23, minute=59, second=59) if end_date else now
     sessions = db.scalars(
-        select(ChargingSession).where(ChargingSession.started_at >= since)
+        select(ChargingSession).where(ChargingSession.started_at >= since, ChargingSession.started_at <= until)
     ).all()
 
     completed = [s for s in sessions if s.ended_at is not None]
@@ -145,10 +161,10 @@ def charging_stats(
         est_vs_real_pct = round(sum(deltas) / len(deltas), 2)
 
     # Battery cycles: total kWh / usable capacity
-    battery_kwh = 77.0
+    battery_kwh = settings.battery_capacity_kwh
     total_cycles = round(total_kwh / battery_kwh, 1) if total_kwh > 0 else 0
 
-    # Charge load: 0.8C threshold for 77 kWh = 61.6 kW
+    # Charge load: 0.8C threshold
     c_threshold = battery_kwh * 0.8
     high_c_sessions = [s for s in completed if (s.peak_power_kw or 0) >= c_threshold]
     low_c_sessions = [s for s in completed if (s.peak_power_kw or 0) < c_threshold]

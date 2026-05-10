@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
@@ -12,22 +13,34 @@ from config import settings
 router = APIRouter(prefix="/api/trips", tags=["trips"])
 
 
+def _parse_range(start_date: Optional[str], end_date: Optional[str], days: int) -> tuple[datetime, datetime]:
+    end_dt = datetime.now(timezone.utc)
+    if start_date:
+        start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+    else:
+        start_dt = end_dt - timedelta(days=days)
+    if end_date:
+        end_dt = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc).replace(hour=23, minute=59, second=59)
+    return start_dt, end_dt
+
+
 @router.get("")
 def list_trips(
     limit: int = Query(default=20, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     days: int = Query(default=0, ge=0),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
     q = select(Trip).order_by(Trip.started_at.desc())
-    if days > 0:
-        since = datetime.now(timezone.utc) - timedelta(days=days)
-        q = q.where(Trip.started_at >= since, Trip.ended_at.is_not(None))
+    if days > 0 or start_date or end_date:
+        since, until = _parse_range(start_date, end_date, max(days, 1))
+        q = q.where(Trip.started_at >= since, Trip.started_at <= until, Trip.ended_at.is_not(None))
     trips = db.scalars(q.limit(limit).offset(offset)).all()
     count_q = select(func.count()).select_from(Trip)
-    if days > 0:
-        since = datetime.now(timezone.utc) - timedelta(days=days)
-        count_q = count_q.where(Trip.started_at >= since, Trip.ended_at.is_not(None))
+    if days > 0 or start_date or end_date:
+        count_q = count_q.where(Trip.started_at >= since, Trip.started_at <= until, Trip.ended_at.is_not(None))
     total = db.scalar(count_q)
     return {"total": total, "trips": [_trip_to_dict(t) for t in trips]}
 
@@ -61,12 +74,14 @@ def trip_route(trip_id: int, db: Session = Depends(get_db)):
 @router.get("/stats")
 def trip_stats(
     days: int = Query(default=30, ge=1, le=3650),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since, until = _parse_range(start_date, end_date, days)
     trips = db.scalars(
         select(Trip)
-        .where(Trip.started_at >= since, Trip.ended_at.is_not(None))
+        .where(Trip.started_at >= since, Trip.started_at <= until, Trip.ended_at.is_not(None))
     ).all()
 
     total_km = sum(t.distance_km or 0 for t in trips)
@@ -156,13 +171,15 @@ def popular_routes(
 @router.get("/journeys")
 def list_journeys(
     days: int = Query(default=30, ge=1, le=3650),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
     """Group completed trips into day-level journeys."""
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since, until = _parse_range(start_date, end_date, days)
     trips = db.scalars(
         select(Trip)
-        .where(Trip.started_at >= since, Trip.ended_at.is_not(None))
+        .where(Trip.started_at >= since, Trip.started_at <= until, Trip.ended_at.is_not(None))
         .order_by(Trip.started_at.desc())
     ).all()
 

@@ -3,26 +3,48 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import type { Journey, PopularRoute } from "@/lib/types";
 import { MapPin, ChevronDown } from "lucide-react";
-import PeriodSelector from "@/components/PeriodSelector";
+import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
+import JourneyMap from "@/components/JourneyMap";
+
+type RouteCache = Record<string, { lat: number; lon: number }[][]>;
 
 
 export default function JourneysPage() {
   const [journeys, setJourneys] = useState<Journey[]>([]);
   const [popular, setPopular] = useState<PopularRoute[]>([]);
-  const [days, setDays] = useState(30);
+  const [range, setRange] = useState<DateRange>(defaultRange(30));
   const [loading, setLoading] = useState(true);
   const [expandedJourney, setExpandedJourney] = useState<string | null>(null);
+  const [routeCache, setRouteCache] = useState<RouteCache>({});
 
   const load = useCallback(async () => {
     setLoading(true);
     await Promise.all([
-      api.trips.journeys(days).then(setJourneys).catch(() => {}),
+      api.trips.journeys(range.start, range.end).then(setJourneys).catch(() => {}),
       api.trips.popular().then(setPopular).catch(() => {}),
     ]);
     setLoading(false);
-  }, [days]);
+  }, [range]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function toggleJourney(j: Journey) {
+    const date = j.date;
+    if (expandedJourney === date) {
+      setExpandedJourney(null);
+      return;
+    }
+    setExpandedJourney(date);
+    if (!routeCache[date]) {
+      const results = await Promise.all(
+        j.trips.map((t) => api.trips.route(t.id).catch(() => null))
+      );
+      const routes = results
+        .filter(Boolean)
+        .map((r) => r!.points);
+      setRouteCache((prev) => ({ ...prev, [date]: routes }));
+    }
+  }
 
   if (loading) {
     return (
@@ -37,7 +59,7 @@ export default function JourneysPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-white">Journeys</h1>
-        <PeriodSelector value={days} onChange={setDays} />
+        <PeriodSelector value={range} onChange={setRange} />
       </div>
 
       {popular.length > 0 && (
@@ -77,7 +99,7 @@ export default function JourneysPage() {
             <div key={j.date} className="rounded-2xl bg-[#161b27] border border-white/5 overflow-hidden">
               <button
                 className="w-full flex items-center gap-3 p-4 text-left hover:bg-white/5 transition"
-                onClick={() => setExpandedJourney(expandedJourney === j.date ? null : j.date)}
+                onClick={() => toggleJourney(j)}
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-white">{j.date}</div>
@@ -97,7 +119,16 @@ export default function JourneysPage() {
                 />
               </button>
               {expandedJourney === j.date && (
-                <div className="border-t border-white/5 divide-y divide-white/5">
+                <div className="border-t border-white/5">
+                  {routeCache[j.date] && routeCache[j.date].some((r) => r.length >= 2) && (
+                    <div className="px-4 pt-3">
+                      <JourneyMap
+                        routes={routeCache[j.date]}
+                        mapId={`journey-map-${j.date}`}
+                      />
+                    </div>
+                  )}
+                  <div className="divide-y divide-white/5">
                   {j.trips.map((t) => (
                     <div key={t.id} className="flex items-center gap-3 px-4 py-3">
                       <div className="flex-1 min-w-0">
@@ -118,6 +149,7 @@ export default function JourneysPage() {
                       )}
                     </div>
                   ))}
+                  </div>
                 </div>
               )}
             </div>

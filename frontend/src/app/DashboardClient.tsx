@@ -67,7 +67,6 @@ export default function DashboardClient({ initial, history }: Props) {
   const plugged = live?.plug_connected ?? initial?.plug_connected ?? null;
   const locked = live?.locked ?? initial?.locked ?? null;
   const batteryTempC = live?.battery_temp_c ?? initial?.battery_temp_c ?? null;
-  const outdoorTempC = live?.outdoor_temp_c ?? initial?.outdoor_temp_c ?? null;
   const cabinTempC = live?.cabin_temp_c ?? initial?.cabin_temp_c ?? null;
   const climatisationState = live?.climatisation_state ?? initial?.climatisation_state ?? null;
   const targetSoc = live?.target_soc_pct ?? initial?.target_soc_pct ?? null;
@@ -183,20 +182,6 @@ export default function DashboardClient({ initial, history }: Props) {
               <span className="flex items-center gap-1.5">
                 <Thermometer size={16} className="text-orange-400" />
                 {batteryTempC.toFixed(1)}°C
-              </span>
-            ) : (
-              "—"
-            )
-          }
-        />
-
-        <StatusCard
-          label="Outside temp"
-          value={
-            outdoorTempC != null ? (
-              <span className="flex items-center gap-1.5">
-                <Thermometer size={16} className="text-sky-400" />
-                {outdoorTempC.toFixed(1)}°C
               </span>
             ) : (
               "—"

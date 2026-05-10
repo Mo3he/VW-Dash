@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import type { Trip } from "@/lib/types";
-import { Thermometer, Zap, Gauge, MapPin, ChevronDown } from "lucide-react";
+import { Zap, Gauge, MapPin, ChevronDown } from "lucide-react";
 import clsx from "clsx";
 import TripMap from "@/components/TripMap";
 import { api } from "@/lib/api";
@@ -75,12 +75,6 @@ export default function TripList({ trips, total }: Props) {
         >
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm text-white font-medium">{formatDate(t.started_at)}</div>
-            {t.outdoor_temp_c != null && (
-              <span className="flex items-center gap-1 text-xs text-gray-500">
-                <Thermometer size={12} />
-                {t.outdoor_temp_c.toFixed(1)}°C
-              </span>
-            )}
           </div>
 
           {/* Location row */}

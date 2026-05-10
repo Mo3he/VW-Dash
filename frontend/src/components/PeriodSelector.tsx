@@ -1,6 +1,12 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import clsx from "clsx";
+
+export interface DateRange {
+  start: string; // YYYY-MM-DD
+  end: string;   // YYYY-MM-DD
+  preset?: number; // days, set for preset buttons
+}
 
 const PRESETS = [
   { label: "7d", days: 7 },
@@ -10,32 +16,78 @@ const PRESETS = [
   { label: "All", days: 3650 },
 ];
 
+function today() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function daysAgo(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().split("T")[0];
+}
+
+export function defaultRange(days = 30): DateRange {
+  return { start: daysAgo(days), end: today(), preset: days };
+}
+
 interface Props {
-  value: number;
-  onChange: (days: number) => void;
+  value: DateRange;
+  onChange: (range: DateRange) => void;
 }
 
 export default function PeriodSelector({ value, onChange }: Props) {
   const [showCustom, setShowCustom] = useState(false);
-  const [customInput, setCustomInput] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
 
-  const isPreset = PRESETS.some((p) => p.days === value);
-
-  useEffect(() => {
-    if (showCustom) inputRef.current?.focus();
-  }, [showCustom]);
-
-  function commitCustom() {
-    const n = parseInt(customInput, 10);
-    if (n > 0) onChange(n);
-    setShowCustom(false);
-    setCustomInput("");
+  function openCustom() {
+    setCustomStart(value.start);
+    setCustomEnd(value.end);
+    setShowCustom(true);
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") commitCustom();
-    if (e.key === "Escape") { setShowCustom(false); setCustomInput(""); }
+  function commitCustom() {
+    if (customStart && customEnd) {
+      onChange({ start: customStart, end: customEnd });
+    }
+    setShowCustom(false);
+  }
+
+  const isCustom = !value.preset;
+
+  if (showCustom) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <input
+          type="date"
+          value={customStart}
+          max={customEnd || today()}
+          onChange={(e) => setCustomStart(e.target.value)}
+          className="text-xs px-2 py-1 rounded-lg bg-[#1e2535] border border-[#00B0F0]/50 text-white focus:outline-none"
+        />
+        <span className="text-xs text-gray-500">–</span>
+        <input
+          type="date"
+          value={customEnd}
+          min={customStart}
+          max={today()}
+          onChange={(e) => setCustomEnd(e.target.value)}
+          className="text-xs px-2 py-1 rounded-lg bg-[#1e2535] border border-[#00B0F0]/50 text-white focus:outline-none"
+        />
+        <button
+          onClick={commitCustom}
+          className="text-xs px-2 py-1 rounded-lg bg-[#00B0F0]/20 text-[#00B0F0] font-medium hover:bg-[#00B0F0]/30 transition"
+        >
+          Apply
+        </button>
+        <button
+          onClick={() => setShowCustom(false)}
+          className="text-xs px-2 py-1 rounded-lg text-gray-500 hover:text-gray-300 transition"
+        >
+          ✕
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -43,10 +95,10 @@ export default function PeriodSelector({ value, onChange }: Props) {
       {PRESETS.map((opt) => (
         <button
           key={opt.days}
-          onClick={() => { onChange(opt.days); setShowCustom(false); }}
+          onClick={() => onChange({ start: daysAgo(opt.days), end: today(), preset: opt.days })}
           className={clsx(
             "text-xs px-2.5 py-1 rounded-lg transition",
-            value === opt.days && !showCustom
+            value.preset === opt.days
               ? "bg-[#00B0F0]/20 text-[#00B0F0] font-medium"
               : "text-gray-500 hover:text-gray-300"
           )}
@@ -54,32 +106,17 @@ export default function PeriodSelector({ value, onChange }: Props) {
           {opt.label}
         </button>
       ))}
-
-      {showCustom ? (
-        <input
-          ref={inputRef}
-          type="number"
-          min={1}
-          value={customInput}
-          onChange={(e) => setCustomInput(e.target.value)}
-          onBlur={commitCustom}
-          onKeyDown={handleKeyDown}
-          placeholder="days"
-          className="w-16 text-xs px-2 py-1 rounded-lg bg-[#1e2535] border border-[#00B0F0]/50 text-white focus:outline-none"
-        />
-      ) : (
-        <button
-          onClick={() => { setShowCustom(true); setCustomInput(isPreset ? "" : String(value)); }}
-          className={clsx(
-            "text-xs px-2.5 py-1 rounded-lg transition",
-            !isPreset
-              ? "bg-[#00B0F0]/20 text-[#00B0F0] font-medium"
-              : "text-gray-500 hover:text-gray-300"
-          )}
-        >
-          {!isPreset ? `${value}d` : "…"}
-        </button>
-      )}
+      <button
+        onClick={openCustom}
+        className={clsx(
+          "text-xs px-2.5 py-1 rounded-lg transition",
+          isCustom
+            ? "bg-[#00B0F0]/20 text-[#00B0F0] font-medium"
+            : "text-gray-500 hover:text-gray-300"
+        )}
+      >
+        {isCustom ? `${value.start} – ${value.end}` : "…"}
+      </button>
     </div>
   );
 }

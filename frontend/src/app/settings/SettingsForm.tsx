@@ -12,6 +12,7 @@ interface ServerSettings {
   epa_rated_range_km: number;
   poll_interval_seconds: number;
   vehicle_name: string;
+  battery_capacity_kwh: number;
 }
 
 interface FormState {
@@ -24,6 +25,7 @@ interface FormState {
   epa_rated_range_km: string;
   poll_interval_seconds: string;
   vehicle_name: string;
+  battery_capacity_kwh: string;
 }
 
 interface Props {
@@ -41,6 +43,7 @@ function toForm(s: ServerSettings | null): FormState {
     epa_rated_range_km: String(s?.epa_rated_range_km ?? 410),
     poll_interval_seconds: String(s?.poll_interval_seconds ?? 300),
     vehicle_name: s?.vehicle_name ?? "ID.4",
+    battery_capacity_kwh: String(s?.battery_capacity_kwh ?? 77),
   };
 }
 
@@ -92,7 +95,6 @@ export default function SettingsForm({ initial }: Props) {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importBatteryKwh, setImportBatteryKwh] = useState("77");
   const [importWipe, setImportWipe] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -106,7 +108,7 @@ export default function SettingsForm({ initial }: Props) {
     try {
       const fd = new FormData();
       fd.append("file", importFile);
-      fd.append("battery_kwh", importBatteryKwh);
+      fd.append("battery_kwh", form.battery_capacity_kwh);
       fd.append("wipe", String(importWipe));
       const res = await fetch("/api/import/vwsfriend", { method: "POST", body: fd });
       if (!res.ok) throw new Error(await res.text());
@@ -135,6 +137,7 @@ export default function SettingsForm({ initial }: Props) {
       epa_rated_range_km: Number(form.epa_rated_range_km),
       poll_interval_seconds: Number(form.poll_interval_seconds),
       vehicle_name: form.vehicle_name,
+      battery_capacity_kwh: Number(form.battery_capacity_kwh),
     };
 
     if (form.vw_username) body.vw_username = form.vw_username;
@@ -294,6 +297,19 @@ export default function SettingsForm({ initial }: Props) {
         </label>
 
         <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Battery capacity (kWh)</span>
+          <input
+            type="number"
+            value={form.battery_capacity_kwh}
+            onChange={(e) => set("battery_capacity_kwh", e.target.value)}
+            step="0.1"
+            min="1"
+            className={inputClass}
+          />
+          <span className="text-xs text-gray-600">ID.4 77 kWh · ID.3 58 kWh · ID.7 86 kWh — used for cycle counting</span>
+        </label>
+
+        <label className="flex flex-col gap-1">
           <span className="text-xs text-gray-500 uppercase tracking-wider">Poll interval (seconds)</span>
           <input
             type="number"
@@ -338,28 +354,15 @@ export default function SettingsForm({ initial }: Props) {
           />
         </label>
 
-        <div className="flex gap-3 items-end">
-          <label className="flex flex-col gap-1 w-36">
-            <span className="text-xs text-gray-500 uppercase tracking-wider">Battery capacity (kWh)</span>
-            <input
-              type="number"
-              value={importBatteryKwh}
-              onChange={(e) => setImportBatteryKwh(e.target.value)}
-              step="0.1"
-              min="1"
-              className={inputClass}
-            />
-          </label>
-          <label className="flex items-center gap-2 pb-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={importWipe}
-              onChange={(e) => setImportWipe(e.target.checked)}
-              className="accent-[#00B0F0] w-4 h-4"
-            />
-            <span className="text-xs text-gray-400">Replace existing data</span>
-          </label>
-        </div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={importWipe}
+            onChange={(e) => setImportWipe(e.target.checked)}
+            className="accent-[#00B0F0] w-4 h-4"
+          />
+          <span className="text-xs text-gray-400">Replace existing data</span>
+        </label>
 
         <button
           type="button"

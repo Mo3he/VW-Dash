@@ -20,6 +20,7 @@ interface EditState {
   cost_per_kwh: string;
   charge_type: string;
   peak_power_kw: string;
+  location_name: string;
 }
 
 function formatDate(iso: string) {
@@ -49,6 +50,7 @@ function sessionToEditState(s: ChargingSession): EditState {
     cost_per_kwh: s.cost_per_kwh?.toString() ?? "",
     charge_type: s.charge_type ?? "AC",
     peak_power_kw: s.peak_power_kw?.toString() ?? "",
+    location_name: s.location_name ?? "",
   };
 }
 
@@ -84,6 +86,7 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
       if (editState.cost !== "") body.cost = parseFloat(editState.cost);
       if (editState.charge_type) body.charge_type = editState.charge_type;
       if (editState.peak_power_kw !== "") body.peak_power_kw = parseFloat(editState.peak_power_kw);
+      body.location_name = editState.location_name || null;
 
       const updated = await api.charging.updateSession(s.id, body as Partial<ChargingSession>);
       onSessionUpdated(updated);
@@ -252,6 +255,16 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated 
                     />
                   </label>
                 </div>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-gray-500">Location name</span>
+                  <input
+                    type="text"
+                    value={editState.location_name}
+                    onChange={(e) => setEditState({ ...editState, location_name: e.target.value })}
+                    placeholder="e.g. Home, Work, Tesla Supercharger"
+                    className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white w-full"
+                  />
+                </label>
                 {saveError && <div className="text-xs text-red-400">{saveError}</div>}
               </div>
             ) : (

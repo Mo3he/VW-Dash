@@ -4,7 +4,7 @@ export const revalidate = 0;
 
 async function fetchSettings() {
   try {
-    const res = await fetch("http://localhost:8000/api/settings/", {
+    const res = await fetch("http://localhost:8000/api/settings", {
       cache: "no-store",
     });
     if (!res.ok) return null;

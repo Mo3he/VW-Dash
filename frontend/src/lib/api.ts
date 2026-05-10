@@ -68,20 +68,23 @@ export const api = {
       get<{ total: number; sessions: ChargingSession[] }>(
         `/charging/sessions?limit=${limit}&offset=${offset}`
       ),
-    stats: (days = 30) => get<ChargingStats>(`/charging/stats?days=${days}`),
+    stats: (start: string, end: string) =>
+      get<ChargingStats>(`/charging/stats?start_date=${start}&end_date=${end}`),
     locations: () => get<ChargeLocation[]>(`/charging/locations`),
     updateSession: (id: number, body: Partial<ChargingSession>) =>
       patch<ChargingSession>(`/charging/sessions/${id}`, body),
   },
   trips: {
-    list: (limit = 20, offset = 0, days = 0) =>
+    list: (limit = 20, offset = 0, start?: string, end?: string) =>
       get<{ total: number; trips: Trip[] }>(
-        `/trips?limit=${limit}&offset=${offset}${days > 0 ? `&days=${days}` : ""}`
+        `/trips?limit=${limit}&offset=${offset}${start ? `&start_date=${start}&end_date=${end}` : ""}`
       ),
-    stats: (days = 30) => get<TripStats>(`/trips/stats?days=${days}`),
+    stats: (start: string, end: string) =>
+      get<TripStats>(`/trips/stats?start_date=${start}&end_date=${end}`),
     route: (id: number) => get<{ trip_id: number; points: { lat: number; lon: number }[] }>(`/trips/${id}/route`),
     popular: (limit = 10) => get<PopularRoute[]>(`/trips/popular?limit=${limit}`),
-    journeys: (days = 30) => get<Journey[]>(`/trips/journeys?days=${days}`),
+    journeys: (start: string, end: string) =>
+      get<Journey[]>(`/trips/journeys?start_date=${start}&end_date=${end}`),
   },
   events: {
     list: (limit = 50, days = 3) =>

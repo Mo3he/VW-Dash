@@ -6,13 +6,9 @@ import StatusCard from "@/components/StatusCard";
 import TripList from "./TripList";
 import TempEfficiency from "./TempEfficiency";
 import EfficiencyChart from "./EfficiencyChart";
-import PeriodSelector from "@/components/PeriodSelector";
+import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
 
 const PAGE_SIZE = 20;
-
-function periodLabel(days: number) {
-  return days >= 3650 ? "all time" : `last ${days} days`;
-}
 
 export default function TripsPage() {
   const [stats, setStats] = useState<TripStats | null>(null);
@@ -20,18 +16,18 @@ export default function TripsPage() {
   const [chartTrips, setChartTrips] = useState<Trip[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [statsDays, setStatsDays] = useState(30);
+  const [range, setRange] = useState<DateRange>(defaultRange(30));
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
   const loadStats = useCallback(async () => {
-    const s = await api.trips.stats(statsDays).catch(() => null);
+    const s = await api.trips.stats(range.start, range.end).catch(() => null);
     setStats(s);
-  }, [statsDays]);
+  }, [range]);
 
   const loadTrips = useCallback(async (off: number, append: boolean) => {
     const data = await api.trips
-      .list(PAGE_SIZE, off, statsDays)
+      .list(PAGE_SIZE, off, range.start, range.end)
       .catch(() => ({ total: 0, trips: [] as Trip[] }));
     if (append) {
       setTrips((prev) => [...prev, ...data.trips]);
@@ -40,14 +36,14 @@ export default function TripsPage() {
     }
     setTotal(data.total);
     setOffset(off + data.trips.length);
-  }, [statsDays]);
+  }, [range]);
 
   const loadChartTrips = useCallback(async () => {
     const data = await api.trips
-      .list(1000, 0, statsDays)
+      .list(1000, 0, range.start, range.end)
       .catch(() => ({ trips: [] as Trip[] }));
     setChartTrips(data.trips);
-  }, [statsDays]);
+  }, [range]);
 
   useEffect(() => {
     setLoading(true);
@@ -80,25 +76,23 @@ export default function TripsPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-white">Trips</h1>
-        <PeriodSelector value={statsDays} onChange={setStatsDays} />
+        <PeriodSelector value={range} onChange={setRange} />
       </div>
 
       {stats && (
         <>
           <div className="grid grid-cols-2 gap-3">
             <StatusCard
-              label={`Trips (${periodLabel(statsDays)})`}
+              label="Trips"
               value={stats.trip_count}
             />
             <StatusCard
               label="Distance"
               value={`${stats.total_km.toLocaleString("sv-SE")} km`}
-              sub={periodLabel(statsDays)}
             />
             <StatusCard
               label="Energy used"
               value={`${stats.total_kwh} kWh`}
-              sub={periodLabel(statsDays)}
             />
             <StatusCard
               label="Avg efficiency"

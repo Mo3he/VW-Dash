@@ -5,11 +5,8 @@ import type { ChargingSession, ChargingStats } from "@/lib/types";
 import StatusCard from "@/components/StatusCard";
 import ChargeMap from "@/components/ChargeMap";
 import ChargingSessionList from "./ChargingSessionList";
-import PeriodSelector from "@/components/PeriodSelector";
+import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
 
-function periodLabel(days: number) {
-  return days >= 3650 ? "all time" : `last ${days} days`;
-}
 const PAGE_SIZE = 20;
 
 export default function ChargingPage() {
@@ -17,14 +14,14 @@ export default function ChargingPage() {
   const [sessions, setSessions] = useState<ChargingSession[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [statsDays, setStatsDays] = useState(30);
+  const [range, setRange] = useState<DateRange>(defaultRange(30));
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
   const loadStats = useCallback(async () => {
-    const s = await api.charging.stats(statsDays).catch(() => null);
+    const s = await api.charging.stats(range.start, range.end).catch(() => null);
     setStats(s);
-  }, [statsDays]);
+  }, [range]);
 
   const loadSessions = useCallback(async (off: number, append: boolean) => {
     const data = await api.charging.sessions(PAGE_SIZE, off).catch(() => ({ total: 0, sessions: [] as ChargingSession[] }));
@@ -71,20 +68,19 @@ export default function ChargingPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-white">Charging</h1>
-        <PeriodSelector value={statsDays} onChange={setStatsDays} />
+        <PeriodSelector value={range} onChange={setRange} />
       </div>
 
       {stats && (
         <>
           <div className="grid grid-cols-2 gap-3">
             <StatusCard
-              label={`Sessions (${periodLabel(statsDays)})`}
+              label="Sessions"
               value={stats.session_count}
             />
             <StatusCard
               label="Battery cycles"
               value={stats.total_cycles}
-              sub={periodLabel(statsDays)}
             />
             <StatusCard
               label="Energy added"

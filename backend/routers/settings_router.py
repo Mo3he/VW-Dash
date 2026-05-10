@@ -23,6 +23,7 @@ class SettingsUpdate(BaseModel):
     epa_rated_range_km: float | None = None
     poll_interval_seconds: int | None = None
     vehicle_name: str | None = None
+    battery_capacity_kwh: float | None = None
 
 
 @router.get("")
@@ -37,6 +38,7 @@ def get_settings():
         "epa_rated_range_km": settings.epa_rated_range_km,
         "poll_interval_seconds": settings.poll_interval_seconds,
         "vehicle_name": settings.vehicle_name,
+        "battery_capacity_kwh": settings.battery_capacity_kwh,
     }
 
 
@@ -58,6 +60,7 @@ def update_settings(body: SettingsUpdate):
         epa_rated_range_km=body.epa_rated_range_km,
         poll_interval_seconds=body.poll_interval_seconds,
         vehicle_name=body.vehicle_name,
+        battery_capacity_kwh=body.battery_capacity_kwh,
     )
 
     if credentials_changed:

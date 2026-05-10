@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     currency_after: bool = False  # True = "100 kr" style, False = "$100" style
     epa_rated_range_km: float = 410.0
     vehicle_name: str = "ID.4"
+    battery_capacity_kwh: float = 77.0
 
 
 def _load_config_file() -> dict:
