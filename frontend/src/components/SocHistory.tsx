@@ -39,7 +39,7 @@ export default function SocHistory({ initialData }: Props) {
     api.vehicle.historyByRange(range.start, range.end).then(setData).catch(() => {});
   }, [range]);
 
-  const sampled = downsample(data, 200);
+  const sampled = downsample(data, 1000);
   const useTime = daysBetween(range) <= 2;
 
   const points = sampled.map((s) => ({
@@ -69,7 +69,7 @@ export default function SocHistory({ initialData }: Props) {
         <div className="h-40 flex items-center justify-center text-xs text-gray-600">No data for this period</div>
       ) : (
         <ResponsiveContainer width="100%" height={160}>
-          <ComposedChart data={points} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <ComposedChart data={points} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="socGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#00B0F0" stopOpacity={0.3} />
@@ -90,7 +90,7 @@ export default function SocHistory({ initialData }: Props) {
               tickLine={false}
               axisLine={false}
               tickFormatter={(v) => `${v}%`}
-              width={36}
+              width={42}
             />
             {hasRange && (
               <YAxis
