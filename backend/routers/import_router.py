@@ -17,7 +17,7 @@ def _default_battery_kwh() -> float:
     return settings.battery_capacity_kwh
 from geocoder import reverse_geocode
 from import_vwsfriend import import_from_backup
-from models import ChargingSession, Trip
+from models import ChargingSession, Trip, VehicleSnapshot
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/import", tags=["import"])
@@ -66,13 +66,30 @@ def _geocode_backfill_bg() -> None:
 
             sessions = db.scalars(
                 select(ChargingSession).where(
-                    ChargingSession.latitude.is_not(None),
                     ChargingSession.location_name.is_(None),
+                    ChargingSession.ended_at.is_not(None),
                 )
             ).all()
             logger.info("Geocode backfill: %d charging sessions to process", len(sessions))
             for s in sessions:
-                s.location_name = cached_geocode(s.latitude, s.longitude)
+                lat, lon = s.latitude, s.longitude
+                if (lat is None or lon is None) and s.started_at is not None:
+                    # Session was recorded without GPS — look for a snapshot nearby in time
+                    snap = db.scalars(
+                        select(VehicleSnapshot)
+                        .where(
+                            VehicleSnapshot.recorded_at >= s.started_at,
+                            VehicleSnapshot.latitude.is_not(None),
+                        )
+                        .order_by(VehicleSnapshot.recorded_at)
+                        .limit(1)
+                    ).first()
+                    if snap:
+                        lat, lon = snap.latitude, snap.longitude
+                        s.latitude = lat
+                        s.longitude = lon
+                if lat is not None and lon is not None:
+                    s.location_name = cached_geocode(lat, lon)
             db.commit()
 
             logger.info(

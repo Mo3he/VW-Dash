@@ -386,18 +386,22 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
     is_charging = state == "CHARGING"
 
     if is_charging and _active_charging_session_id is None:
+        # Fall back to last known parked position if the parking domain isn't returning
+        # coordinates right now (common while actively charging)
+        lat = snap.latitude if snap.latitude is not None else _prev_lat
+        lon = snap.longitude if snap.longitude is not None else _prev_lon
         session = ChargingSession(
             started_at=snap.recorded_at,
             soc_start_pct=snap.soc_pct,
             charge_type=snap.charge_type,
-            latitude=snap.latitude,
-            longitude=snap.longitude,
+            latitude=lat,
+            longitude=lon,
         )
         db.add(session)
         db.flush()
         _active_charging_session_id = session.id
-        if snap.latitude and snap.longitude:
-            nearby = find_nearby(db, snap.latitude, snap.longitude)
+        if lat and lon:
+            nearby = find_nearby(db, lat, lon)
             if nearby:
                 session.charger_id = nearby.id
                 session.location_name = nearby.name

@@ -218,12 +218,42 @@ def _import_trip_rows(rows: list[dict], battery_rows: list[dict], session: Sessi
     return count
 
 
+def _build_parking_index(rows: list[dict]) -> tuple[list[datetime], list[tuple[float, float]]]:
+    """Build a time-sorted index of (lat, lon) from VWsFriend parking_position rows."""
+    pairs = []
+    for r in rows:
+        ts = _ts(r.get("carCapturedTimestamp"))
+        lat = _float(r.get("latitude"))
+        lon = _float(r.get("longitude"))
+        if ts is not None and lat is not None and lon is not None:
+            pairs.append((ts, (lat, lon)))
+    pairs.sort(key=lambda p: p[0])
+    return [p[0] for p in pairs], [p[1] for p in pairs]
+
+
+def _coords_at(times: list[datetime], coords: list[tuple[float, float]], ts: datetime, window_h: float = 2.0) -> tuple[float, float] | None:
+    """Return the nearest (lat, lon) to ts within window_h hours, or None."""
+    if not times:
+        return None
+    idx = bisect.bisect_right(times, ts)
+    best: tuple[float, float] | None = None
+    best_delta = float("inf")
+    for i in (idx - 1, idx):
+        if 0 <= i < len(times):
+            delta = abs((times[i] - ts).total_seconds()) / 3600
+            if delta < window_h and delta < best_delta:
+                best_delta = delta
+                best = coords[i]
+    return best
+
+
 def _import_charging_rows(
     rows: list[dict],
     session: Session,
     battery_kwh: float,
     epa_range_km: float = 410.0,
     electricity_rate: float | None = None,
+    parking_rows: list[dict] | None = None,
 ) -> int:
     if electricity_rate is None:
         try:
@@ -231,6 +261,9 @@ def _import_charging_rows(
             electricity_rate = _s.electricity_rate_per_kwh
         except Exception:
             electricity_rate = 0.0
+
+    park_times, park_coords = _build_parking_index(parking_rows or [])
+
     count = 0
     for r in rows:
         started = _ts(r.get("started"))
@@ -268,6 +301,14 @@ def _import_charging_rows(
             rate_used = electricity_rate
             cost = round(kwh * electricity_rate, 2)
 
+        # GPS: prefer coords embedded in the row; fall back to nearest parking position
+        lat = _float(r.get("latitude")) or _float(r.get("position_latitude"))
+        lon = _float(r.get("longitude")) or _float(r.get("position_longitude"))
+        if (lat is None or lon is None) and park_times:
+            coords = _coords_at(park_times, park_coords, started)
+            if coords:
+                lat, lon = coords
+
         acdc = (r.get("acdc") or "").upper() or None
         session.add(ChargingSession(
             started_at=started,
@@ -280,6 +321,8 @@ def _import_charging_rows(
             charge_type=acdc if acdc else None,
             cost=cost,
             cost_per_kwh=rate_used,
+            latitude=lat,
+            longitude=lon,
         ))
         count += 1
     session.flush()
@@ -299,6 +342,12 @@ def import_from_backup(
     trip_rows = pg_restore_copy(backup_path, "trips")
     charging_rows = pg_restore_copy(backup_path, "charging_sessions")
 
+    # Parking positions provide GPS coordinates to geo-tag charging sessions
+    try:
+        parking_rows = pg_restore_copy(backup_path, "parking_position")
+    except Exception:
+        parking_rows = []
+
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
 
@@ -310,7 +359,7 @@ def import_from_backup(
 
         n_snaps = _import_snapshot_rows(battery_rows, session)
         n_trips = _import_trip_rows(trip_rows, battery_rows, session)
-        n_charging = _import_charging_rows(charging_rows, session, battery_kwh)
+        n_charging = _import_charging_rows(charging_rows, session, battery_kwh, parking_rows=parking_rows)
         session.commit()
 
     return {"snapshots": n_snaps, "trips": n_trips, "charging_sessions": n_charging}
