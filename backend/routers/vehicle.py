@@ -164,9 +164,18 @@ def vampire_drain(
         if (s.charge_power_kw or 0) > 0:
             i += 1
             continue
-        # Find contiguous parked window (no charging)
+        # Find contiguous parked window: ends when charging starts OR odometer increases (driving)
         j = i + 1
-        while j < len(snaps) and (snaps[j].charge_power_kw or 0) == 0:
+        while j < len(snaps):
+            nxt = snaps[j]
+            if (nxt.charge_power_kw or 0) > 0:
+                break  # charging started
+            if (
+                nxt.odometer_km is not None
+                and s.odometer_km is not None
+                and nxt.odometer_km > s.odometer_km
+            ):
+                break  # odometer moved — car drove, not parked
             j += 1
         end_snap = snaps[j - 1]
         duration_h = (end_snap.recorded_at - s.recorded_at).total_seconds() / 3600
@@ -186,8 +195,10 @@ def vampire_drain(
     if not events:
         return {"events": [], "avg_drain_pct_per_h": None, "total_soc_lost": None}
 
-    avg_drain = sum(e["drain_pct_per_h"] for e in events) / len(events)
     total_lost = sum(e["soc_drop_pct"] for e in events)
+    total_hours = sum(e["duration_h"] for e in events)
+    # Weighted average: total SoC lost / total hours parked (longer windows count more)
+    avg_drain = total_lost / total_hours if total_hours > 0 else 0
     return {
         "events": events[-20:],  # most recent 20
         "avg_drain_pct_per_h": round(avg_drain, 3),
