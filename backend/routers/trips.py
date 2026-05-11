@@ -57,20 +57,23 @@ def trip_route(trip_id: int, db: Session = Depends(get_db)):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Trip not found")
 
-    points = db.scalars(
+    mid_points = db.scalars(
         select(TripPoint)
         .where(TripPoint.trip_id == trip_id)
         .order_by(TripPoint.recorded_at)
     ).all()
 
-    coords = [{"lat": p.latitude, "lon": p.longitude} for p in points]
+    # Always anchor with Trip-row start/end so we have at least 2 points for
+    # completed trips even when breadcrumbs are all at the stale parking position.
+    coords = []
+    if trip.start_lat and trip.start_lon:
+        coords.append({"lat": trip.start_lat, "lon": trip.start_lon})
 
-    # If no mid-trip breadcrumbs, fall back to start/end points only
-    if not coords:
-        if trip.start_lat and trip.start_lon:
-            coords.append({"lat": trip.start_lat, "lon": trip.start_lon})
-        if trip.end_lat and trip.end_lon:
-            coords.append({"lat": trip.end_lat, "lon": trip.end_lon})
+    for p in mid_points:
+        coords.append({"lat": p.latitude, "lon": p.longitude})
+
+    if trip.end_lat and trip.end_lon:
+        coords.append({"lat": trip.end_lat, "lon": trip.end_lon})
 
     return {"trip_id": trip_id, "points": coords}
 
