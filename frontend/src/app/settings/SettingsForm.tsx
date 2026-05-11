@@ -118,6 +118,9 @@ function UsersManager({ inputClass }: { inputClass: string }) {
   const [newIsAdmin, setNewIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [changingPwFor, setChangingPwFor] = useState<number | null>(null);
+  const [newPw, setNewPw] = useState("");
+  const [pwError, setPwError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -168,26 +171,82 @@ function UsersManager({ inputClass }: { inputClass: string }) {
     setUsers((u) => u.filter((x) => x.id !== id));
   }
 
+  async function changePassword(id: number) {
+    setPwError(null);
+    const res = await fetch(`/api/auth/users/${id}/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ password: newPw }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setPwError((data as { detail?: string }).detail ?? "Failed to change password");
+      return;
+    }
+    setChangingPwFor(null);
+    setNewPw("");
+  }
+
   return (
     <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-4">
       <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">Users</div>
 
       <div className="flex flex-col gap-2">
         {users.map((u) => (
-          <div key={u.id} className="flex items-center justify-between text-sm py-1">
-            <div className="flex items-center gap-2">
-              <span className="text-white">{u.username}</span>
-              {u.is_admin && (
-                <span className="text-[10px] text-[#00B0F0] bg-[#00B0F0]/10 rounded px-1.5 py-0.5">admin</span>
-              )}
+          <div key={u.id} className="flex flex-col gap-1.5 py-1">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-white">{u.username}</span>
+                {u.is_admin && (
+                  <span className="text-[10px] text-[#00B0F0] bg-[#00B0F0]/10 rounded px-1.5 py-0.5">admin</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChangingPwFor(changingPwFor === u.id ? null : u.id);
+                    setNewPw("");
+                    setPwError(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-300 text-xs transition-colors"
+                >
+                  {changingPwFor === u.id ? "Cancel" : "Change password"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeUser(u.id)}
+                  className="text-red-400 hover:text-red-300 text-xs transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => removeUser(u.id)}
-              className="text-red-400 hover:text-red-300 text-xs transition-colors"
-            >
-              Remove
-            </button>
+            {changingPwFor === u.id && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); changePassword(u.id); }}
+                className="flex items-center gap-2 mt-0.5"
+              >
+                <input
+                  type="password"
+                  placeholder="New password"
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  autoComplete="new-password"
+                  className={inputClass + " flex-1"}
+                />
+                <button
+                  type="submit"
+                  disabled={!newPw}
+                  className="text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-colors disabled:opacity-40"
+                >
+                  Save
+                </button>
+              </form>
+            )}
+            {changingPwFor === u.id && pwError && (
+              <div className="text-xs text-red-400">{pwError}</div>
+            )}
           </div>
         ))}
       </div>

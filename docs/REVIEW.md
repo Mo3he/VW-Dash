@@ -1,6 +1,6 @@
 # VW-Dash — Project Review
 
-> Original snapshot: 2026-05-10. Re-audited 2026-05-10 after the fix pass.
+> Original snapshot: 2026-05-10. Re-audited 2026-05-10 after the fix pass. Re-audited 2026-05-11 after the UI/auth/theming pass.
 > **Legend:** ✅ done · ⚠️ partial · ❌ not done · ➖ won't-fix / out of scope
 
 > **Heads-up:** the original review flagged plaintext password storage. The repo now supports Fernet-at-rest, but **rotating the leaked credential is still a manual step the operator must do** — the encryption only protects newly written passwords. See item #7.
@@ -44,9 +44,13 @@ Encryption at rest is implemented:
 Caveats: if `SECRET_KEY` is *not* set, the password still lands in `config.json` plaintext (matches today's deploys, but worth a docs nudge). `vw_password_file` / Docker-secret support is **not** done.
 
 ### 8. ✅ Authentication
-Access token + frontend login gate:
-- [backend/main.py:85-96](backend/main.py#L85-L96) — auth middleware (exempts `/api/health` and `/ws`)
-- [frontend/src/lib/auth.ts](frontend/src/lib/auth.ts) + [frontend/src/components/AuthGate.tsx](frontend/src/components/AuthGate.tsx) — token storage in `localStorage`, login form on 401
+Full JWT-based multi-user auth:
+- [backend/main.py:85-96](backend/main.py#L85-L96) — auth middleware (exempts `/api/health`, `/api/auth/setup`, `/api/auth/login`, `/ws`, and GET `/api/settings`)
+- [backend/routers/auth.py](backend/routers/auth.py) — setup, login, user management (create, delete, change password), admin gate
+- [frontend/src/lib/auth.ts](frontend/src/lib/auth.ts) + [frontend/src/components/AuthGate.tsx](frontend/src/components/AuthGate.tsx) — token storage in `localStorage`, login/setup forms
+- [frontend/src/app/settings/SettingsForm.tsx](frontend/src/app/settings/SettingsForm.tsx) — Users section with add, remove, and change-password UI
+
+Resolved: `passlib`+`bcrypt>=4.0` incompatibility (`ValueError: password cannot be longer than 72 bytes`) fixed by pinning `bcrypt<4.0.0` in `requirements.txt`.
 
 ### 9. ✅ Nominatim user-agent
 [backend/geocoder.py:17](backend/geocoder.py#L17) — `VW-Dash/1.0 (self-hosted EV dashboard; https://github.com/Mo3he/VW-Dash)`.
@@ -101,6 +105,10 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 - ✅ **CO₂ saved** — computed on the trips page (7 L/100km petrol baseline × 2.31 kg/L).
 - ✅ **Vampire drain** — `GET /api/vehicle/vampire-drain` + [frontend/src/components/VampireDrainCard.tsx](frontend/src/components/VampireDrainCard.tsx).
 - ✅ **Test-connection button** — `POST /api/settings/test-connection` + UI in Settings.
+- ✅ **Force poll button** — `POST /api/vehicle/poll` ([backend/routers/vehicle.py](backend/routers/vehicle.py)) + refresh icon button in dashboard header; spins while in-flight, result arrives via WebSocket.
+- ✅ **Light/dark mode** — `ThemeProvider` applies a `light` class to `<html>`; CSS overrides cascade through all Tailwind arbitrary-value classes. Toggle button (Sun/Moon) in nav bar. Preference persisted in `localStorage`.
+- ✅ **Custom theme colors** — Appearance section at the bottom of Settings; color pickers for accent, page background, and card background, separately for dark and light modes. Applied instantly via CSS variables. Per-theme Reset buttons.
+- ✅ **Change password UI** — inline form per user row in the Users section of Settings (calls `POST /api/auth/users/{id}/password`).
 
 ### Not done
 - ⚠️ **Manual entry** — delete is in; "add a trip I forgot to log" / "add a charging session by hand" UI was not built. Inline edit on existing rows already worked before this pass.
@@ -118,8 +126,10 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 - ✅ `metadata.viewport` → `export const viewport: Viewport` ([layout.tsx:12-16](frontend/src/app/layout.tsx#L12-L16)).
 - ✅ `devIndicators` switched to the object form (no deprecation warning).
 - ✅ Nav uses `useVehicleName()` from `SettingsProvider` instead of fetching `/api/settings` itself.
-- ✅ Frontend `connected` from `useVehicleLive` is now used — Offline pill on the dashboard ([DashboardClient.tsx:108-111](frontend/src/app/DashboardClient.tsx#L108-L111)).
+- ✅ Frontend `connected` from `useVehicleLive` is now used — Offline pill on the dashboard.
 - ✅ `websockets==14.1` already absent from `backend/requirements.txt`.
+- ✅ Nav redesigned — frosted-glass header, consistent icon-button style for all actions, vehicle name / version shown inline.
+- ✅ Dashboard SSR auth bug fixed — `page.tsx` no longer calls authenticated API endpoints server-side (token is in `localStorage`, unavailable to SSR). Data is fetched client-side on mount.
 
 ### Not done
 - ❌ `viewport.maximumScale: 1` is still set in [layout.tsx:15](frontend/src/app/layout.tsx#L15) — pinch-zoom remains blocked. Accessibility nit, easy to drop later.
@@ -127,8 +137,8 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 - ❌ No backend lint/type config (ruff/black/mypy).
 - ❌ Empty `backend/migrations/` directory still present.
 - ❌ Distance/efficiency calc still duplicated across `poller.py`, `recover_trips.py`, and `import_vwsfriend.py` — not extracted to `utils.py`.
-- ❌ Dockerfile still installs `postgresql-client` (~70 MB) into the runtime image.
-- ❌ [CLAUDE.md:60](CLAUDE.md#L60) still says "not via Alembic CLI despite Alembic being installed" — accurate today, but the Alembic dep itself ought to be removed if we're sticking with raw ALTERs.
+- ❌ Dockerfile still installs `postgresql-client` (~70 MB) into the runtime image for the import-only `import_vwsfriend.py` script.
+- ❌ Alembic still in `requirements.txt` but unused — should be removed if staying with raw `ALTER TABLE` migrations.
 
 ---
 
@@ -139,10 +149,66 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 | Critical bugs (1–6) | 5 | 0 | 1 (#5 SoC quantization) |
 | Security & privacy (7–10) | 3 | 1 (#7 — encryption done, no `_file` variant, manual rotation still required) | 0 |
 | Reliability (11–20) | 8 | 0 | 2 (#11 Alembic, #15 naive-datetime) |
-| Features | 8 | 1 (manual entry) | 2 (SoH, multi-vehicle) |
-| Polish | 7 | 0 | 7 (a11y nit, tests, lint, empty migrations dir, dedup, Docker slimming, stale Alembic note) |
+| Features | 11 | 1 (manual entry) | 2 (SoH, multi-vehicle) |
+| Polish | 9 | 0 | 7 (a11y nit, tests, lint, empty migrations dir, dedup, Docker slimming, stale Alembic dep) |
 
 **Operator follow-ups still required:**
 1. Rotate the VW WeConnect password that was committed in plaintext history.
 2. Set a `SECRET_KEY` env var so the rotated password is encrypted on disk.
 3. Set an `access_token` in Settings if exposing beyond a trusted LAN.
+
+
+---
+
+## VWsFriend Gap Analysis — cross-reference
+
+Full analysis: [VWSFRIEND_GAP_ANALYSIS.md](VWSFRIEND_GAP_ANALYSIS.md)
+
+### §2 / §2.13 — Missing data domains & integrations
+
+| Item | Status | Notes |
+|---|---|---|
+| §2.1 Charging session lifecycle (connected→locked→started→ended→unlocked→disconnected) | ❌ | `started_at`/`ended_at` only |
+| §2.2 Maintenance tracking (inspection, oil service due dates) | ❌ | WeConnect exposes it; we discard it |
+| §2.3 Warning lights (dashboard lights with history) | ❌ | WeConnect exposes it; we discard it |
+| §2.4 Geofences (named zones) | ❌ | No model or UI |
+| §2.5 Structured chargers | ✅ | `Charger` model + proximity matching in `chargers.py`; `charger_id` FK on `ChargingSession` |
+| §2.6 Structured geocoded locations (OSM breakdown) | ❌ | Still a single string column |
+| §2.7 Tags on trips/charges | ❌ | No model or UI |
+| §2.8 Online/offline session tracking | ❌ | No model; connectivity gaps invisible |
+| §2.9 Persisted WeConnect errors | ❌ | Errors logged to stderr only, lost on container restart |
+| §2.10 Multi-vehicle support | ❌ | Hard-wired to one `vw_vin` setting |
+| §2.11 ABRP integration | ❌ | Not started |
+| §2.12 MQTT publisher | ❌ | Not started |
+| §2.13 Vehicle controls — lock/unlock/flash/charge start-stop/target SoC | ❌ | Only climate start/stop is implemented |
+
+### §3 — Improvements to existing implementations
+
+| Item | Status | Notes |
+|---|---|---|
+| §3.1 Normalised snapshot schema | ❌ | One wide denormalised row per poll; acceptable while DB is small |
+| §3.2 READINESS_STATUS trip detection fallback | ❌ | No GPS → no trip |
+| §3.4 kWh-based battery health metric | ❌ | Range-extrapolation only today |
+| §3.5 Store OSM IDs in geocoder | ❌ | Nominatim result stored as display string only |
+| §3.7 Unified event dispatcher (webhook → MQTT → future) | ❌ | `webhook.py` is hard-wired |
+| §3.8 Importer covers subset of VWsFriend tables | ⚠️ | Snapshots, trips, charging sessions only — warning lights, maintenance, chargers, locations, journeys not imported |
+
+### §4 — UX / privacy gaps
+
+| Item | Status | Notes |
+|---|---|---|
+| §4.1 Privacy toggle (`record_locations: bool`) | ❌ | All GPS always written |
+| §4.2 Implicit unit system | ⚠️ | `distance_unit` km/miles setting exists; no single "metric/imperial" toggle for all units |
+| §4.3 Versions / about page | ❌ | Version shown in nav; no full diagnostics endpoint with lib versions |
+| §4.4 Restart/reload UX | ❌ | Most settings pick up on next poll; no explicit restart button |
+
+### Gap analysis Tier 1 roadmap (highest value, lowest effort)
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Warning lights tracking (§2.3) | ❌ |
+| 2 | Maintenance tracking (§2.2) | ❌ |
+| 3 | Vehicle controls backend — lock/unlock/flash/charge/target SoC (§2.13) | ❌ |
+| 4 | Privacy toggle (§4.1) | ❌ |
+| 5 | Persisted WeConnect errors (§2.9) | ❌ |
+| 6 | Charging session lifecycle states (§2.1) | ❌ |
