@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { setAuth, getToken } from "@/lib/auth";
 
 type Step = "loading" | "authed" | "login" | "setup";
@@ -8,6 +9,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [step, setStep] = useState<Step>("loading");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -120,14 +122,24 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             autoFocus
             className="bg-[#0f1117] border border-white/20 rounded-lg px-4 py-2 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-[#00B0F0]"
           />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            autoComplete={isSetup ? "new-password" : "current-password"}
-            className="bg-[#0f1117] border border-white/20 rounded-lg px-4 py-2 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-[#00B0F0]"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              autoComplete={isSetup ? "new-password" : "current-password"}
+              className="w-full bg-[#0f1117] border border-white/20 rounded-lg px-4 py-2 pr-10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-[#00B0F0]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+              tabIndex={-1}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
           {error && <p className="text-red-400 text-xs">{error}</p>}
           <button
             type="submit"

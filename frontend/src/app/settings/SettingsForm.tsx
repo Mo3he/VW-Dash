@@ -120,6 +120,8 @@ function UsersManager({ inputClass }: { inputClass: string }) {
   const [loading, setLoading] = useState(true);
   const [changingPwFor, setChangingPwFor] = useState<number | null>(null);
   const [newPw, setNewPw] = useState("");
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showNewUserPw, setShowNewUserPw] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -227,14 +229,24 @@ function UsersManager({ inputClass }: { inputClass: string }) {
                 onSubmit={(e) => { e.preventDefault(); changePassword(u.id); }}
                 className="flex items-center gap-2 mt-0.5"
               >
-                <input
-                  type="password"
-                  placeholder="New password"
-                  value={newPw}
-                  onChange={(e) => setNewPw(e.target.value)}
-                  autoComplete="new-password"
-                  className={inputClass + " flex-1"}
-                />
+                <div className="relative flex-1">
+                  <input
+                    type={showNewPw ? "text" : "password"}
+                    placeholder="New password"
+                    value={newPw}
+                    onChange={(e) => setNewPw(e.target.value)}
+                    autoComplete="new-password"
+                    className={inputClass + " w-full pr-9"}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPw((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                    tabIndex={-1}
+                  >
+                    {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
                 <button
                   type="submit"
                   disabled={!newPw}
@@ -262,14 +274,24 @@ function UsersManager({ inputClass }: { inputClass: string }) {
             autoComplete="off"
             className={inputClass}
           />
-          <input
-            type="password"
-            placeholder="Password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            autoComplete="new-password"
-            className={inputClass}
-          />
+          <div className="relative">
+            <input
+              type={showNewUserPw ? "text" : "password"}
+              placeholder="Password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+              className={inputClass + " w-full pr-9"}
+            />
+            <button
+              type="button"
+              onClick={() => setShowNewUserPw((v) => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+              tabIndex={-1}
+            >
+              {showNewUserPw ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
