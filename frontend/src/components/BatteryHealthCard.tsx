@@ -85,7 +85,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
             axisLine={false}
             domain={["auto", "auto"]}
             tickFormatter={(v) => `${v}`}
-            width={36}
+            width={48}
           />
           {/* Right Y: consumption */}
           <YAxis
@@ -101,10 +101,10 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
           <ReferenceLine
             yAxisId="range"
             y={ratedInUnit}
-            stroke="#166534"
-            strokeDasharray="0"
-            strokeWidth={2}
-            label={{ value: `WLTP ${ratedInUnit} ${unitLabel}`, position: "insideTopRight", fill: "#166534", fontSize: 10 }}
+            stroke="#22c55e"
+            strokeDasharray="6 3"
+            strokeWidth={1.5}
+            label={{ value: `Rated ${ratedInUnit} ${unitLabel}`, position: "insideTopRight", fill: "#22c55e", fontSize: 10 }}
           />
           <Tooltip
             contentStyle={{ background: "#1e2535", border: "none", borderRadius: 8, fontSize: 12 }}
@@ -165,8 +165,8 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
             ))}
             <tr>
               <td className="py-0.5 flex items-center gap-1.5">
-                <span className="inline-block w-2.5 h-0.5 rounded" style={{ background: "#166534" }} />
-                WLTP
+                <span className="inline-block w-2.5 h-0.5 rounded border-dashed" style={{ background: "#22c55e" }} />
+                Rated range
               </td>
               <td className="text-right tabular-nums">{ratedInUnit}</td>
               <td className="text-right tabular-nums">{ratedInUnit} *</td>
