@@ -20,8 +20,8 @@ export default async function SettingsPage() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold text-white">Settings</h1>
-      <AppearanceSettings />
       <SettingsForm initial={current} />
+      <AppearanceSettings />
     </div>
   );
 }
