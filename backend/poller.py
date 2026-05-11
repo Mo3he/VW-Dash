@@ -48,6 +48,7 @@ _prev_plug_connected: bool | None = None
 _prev_parking_time: datetime | None = None   # carCapturedTimestamp from last poll
 _prev_lat: float | None = None               # last known parked latitude
 _prev_lon: float | None = None               # last known parked longitude
+_parking_time_unchanged_polls: int = 0       # consecutive polls with same parking_time
 
 # Maximum breadcrumbs per trip before we stop recording (prevents unbounded growth)
 _TRIP_POINT_CAP = 500
@@ -128,6 +129,20 @@ def init_state_from_db() -> None:
                 "SELECT COUNT(*) FROM trip_points WHERE trip_id = :id"
             ), {"id": _active_trip_id}).fetchone()
             _trip_point_count = count_row[0] if count_row else 0
+
+            # Close any other open trips — these are duplicates/orphans from a
+            # previous crash or race condition; keep only the most recent one.
+            stale = db.execute(_text(
+                "SELECT id FROM trips WHERE ended_at IS NULL AND id != :current"
+            ), {"current": _active_trip_id}).fetchall()
+            if stale:
+                now_utc = datetime.now(timezone.utc)
+                for (stale_id,) in stale:
+                    db.execute(_text(
+                        "UPDATE trips SET ended_at = :now WHERE id = :id"
+                    ), {"now": now_utc, "id": stale_id})
+                    logger.warning("Closed dangling open trip id=%d on startup", stale_id)
+                db.commit()
 
         # Resume any open charging session
         row = db.execute(_text(
@@ -481,7 +496,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
 
 def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     global _active_trip_id, _prev_odometer, _trip_start_odometer, _trip_point_count
-    global _prev_parking_time, _prev_lat, _prev_lon
+    global _prev_parking_time, _prev_lat, _prev_lon, _parking_time_unchanged_polls
 
     odometer = snap.odometer_km
     charging = snap.charging_state == "CHARGING"
@@ -508,15 +523,33 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     parking_disappeared = _prev_parking_time is not None and parking_time is None
     parking_appeared = parking_time is not None and parking_time != _prev_parking_time
 
-    # FALLBACK for vehicles that never populate parking_time: use odometer delta
+    # Track how many consecutive polls have seen the same parking_time (frozen API)
+    if parking_time is not None and parking_time == _prev_parking_time:
+        _parking_time_unchanged_polls += 1
+    else:
+        _parking_time_unchanged_polls = 0
+
     odometer_moved = (
         odometer is not None
         and _prev_odometer is not None
         and odometer > _prev_odometer
     )
-    # Only use the fallback when parking_time is consistently absent
+
+    # FALLBACK A: parking_time has never been seen — use odometer delta
     parking_time_available = parking_time is not None or _prev_parking_time is not None
-    should_start_fallback = not parking_time_available and odometer_moved
+    should_start_odometer_fallback = not parking_time_available and odometer_moved
+
+    # FALLBACK B: parking_time is present but frozen for 2+ polls while odometer moved.
+    # This means WeConnect is returning a stale parkingPosition instead of clearing it,
+    # so parking_disappeared will never fire. Use odometer as the signal instead.
+    should_start_stale_parking = (
+        _active_trip_id is None
+        and not definitely_parked
+        and _parking_time_unchanged_polls >= 2
+        and odometer_moved
+    )
+
+    should_start_fallback = should_start_odometer_fallback or should_start_stale_parking
 
     # --- START ---
     if _active_trip_id is None and not definitely_parked:
@@ -537,6 +570,8 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             _active_trip_id = trip.id
             _trip_start_odometer = odometer
             _trip_point_count = 0
+            trigger = "parking_disappeared" if parking_disappeared else ("stale_parking" if should_start_stale_parking else "odometer")
+            logger.info("Trip %d started (trigger=%s, soc=%.0f%%)", trip.id, trigger, snap.soc_pct or 0)
             _emit_event(db, "trip_started", f'{{"soc_pct": {snap.soc_pct}}}')
             webhook.fire("trip_started", {"trip_id": trip.id, "soc_pct": snap.soc_pct})
 
@@ -559,6 +594,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             _close_trip(db, trip, snap)
         _active_trip_id = None
         _trip_start_odometer = None
+        _parking_time_unchanged_polls = 0  # reset so next drive starts fresh
 
     _prev_odometer = odometer
     _prev_parking_time = parking_time
