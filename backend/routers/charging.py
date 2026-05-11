@@ -199,13 +199,22 @@ def delete_session(session_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/locations")
-def charging_locations(db: Session = Depends(get_db)):
-    """All completed sessions with coordinates, for the charge map."""
+def charging_locations(
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Completed sessions with coordinates, for the charge map."""
+    now = datetime.now(timezone.utc)
+    since = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc) if start_date else datetime(2000, 1, 1, tzinfo=timezone.utc)
+    until = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc).replace(hour=23, minute=59, second=59) if end_date else now
     sessions = db.scalars(
         select(ChargingSession).where(
             ChargingSession.ended_at.is_not(None),
             ChargingSession.latitude.is_not(None),
             ChargingSession.longitude.is_not(None),
+            ChargingSession.started_at >= since,
+            ChargingSession.started_at <= until,
         )
     ).all()
     # Group by location_name (or lat/lon bucket) to avoid stacking identical points

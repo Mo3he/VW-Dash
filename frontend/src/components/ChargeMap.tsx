@@ -80,16 +80,16 @@ function ChargeMapInner({ locations }: { locations: ChargeLocation[] }) {
   );
 }
 
-export default function ChargeMap() {
+export default function ChargeMap({ start, end }: { start?: string; end?: string }) {
   const [locations, setLocations] = useState<ChargeLocation[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    api.charging.locations().then((data) => {
+    setLoaded(false);
+    api.charging.locations(start, end).then((data) => {
       setLocations(data);
       setLoaded(true);
     }).catch(() => setLoaded(true));
-
     if (!document.getElementById("leaflet-css")) {
       const link = document.createElement("link");
       link.id = "leaflet-css";
@@ -97,7 +97,7 @@ export default function ChargeMap() {
       link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
       document.head.appendChild(link);
     }
-  }, []);
+  }, [start, end]);
 
   if (!loaded) {
     return (

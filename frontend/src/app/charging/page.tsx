@@ -179,7 +179,7 @@ export default function ChargingPage() {
         </>
       )}
 
-      <ChargeMap />
+      <ChargeMap start={range.start} end={range.end} />
 
       {rangeHealth && <RangeHealthCard data={rangeHealth} />}
 

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Upload } from "lucide-react";
 import { authHeaders, setToken } from "@/lib/auth";
 
@@ -106,6 +107,7 @@ function GeocodeBackfill() {
 }
 
 export default function SettingsForm({ initial }: Props) {
+  const router = useRouter();
   const [form, setForm] = useState<FormState>(toForm(initial));
   const [showPassword, setShowPassword] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -187,6 +189,7 @@ export default function SettingsForm({ initial }: Props) {
       setSaved(true);
       setForm((f) => ({ ...f, vw_password: "", access_token: "", webhook_url: "" }));
       setTimeout(() => setSaved(false), 3000);
+      router.refresh();
     } catch (err) {
       setError(String(err));
     }

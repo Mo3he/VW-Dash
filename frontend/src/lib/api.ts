@@ -95,7 +95,8 @@ export const api = {
       ),
     stats: (start: string, end: string) =>
       get<ChargingStats>(`/charging/stats?start_date=${start}&end_date=${end}`),
-    locations: () => get<ChargeLocation[]>(`/charging/locations`),
+    locations: (start?: string, end?: string) =>
+      get<ChargeLocation[]>(`/charging/locations${start ? `?start_date=${start}&end_date=${end}` : ""}`),
     updateSession: (id: number, body: Partial<ChargingSession>) =>
       patch<ChargingSession>(`/charging/sessions/${id}`, body),
     deleteSession: (id: number) => del(`/charging/sessions/${id}`),
