@@ -47,6 +47,16 @@ class VehicleSnapshot(Base):
     car_captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
+class Charger(Base):
+    """A named charging location saved by the user."""
+    __tablename__ = "chargers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+
+
 class ChargingSession(Base):
     """One completed or in-progress charging session."""
     __tablename__ = "charging_sessions"
@@ -68,6 +78,7 @@ class ChargingSession(Base):
     latitude: Mapped[Optional[float]] = mapped_column(Float)
     longitude: Mapped[Optional[float]] = mapped_column(Float)
     location_name: Mapped[Optional[str]] = mapped_column(String(256))
+    charger_id: Mapped[Optional[int]] = mapped_column(Integer)
 
 
 class Trip(Base):

@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import type { VehicleSnapshot } from "@/lib/types";
 import { api } from "@/lib/api";
-import { useTimezone } from "@/app/SettingsProvider";
+import { useTimezone, useHour12, useDistanceUnit } from "@/app/SettingsProvider";
 import { fmtChartTime, fmtDate } from "@/lib/format";
 import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
 
@@ -32,6 +32,8 @@ function daysBetween(range: DateRange): number {
 
 export default function SocHistory({ initialData }: Props) {
   const tz = useTimezone();
+  const hour12 = useHour12();
+  const distanceUnit = useDistanceUnit();
   const [range, setRange] = useState<DateRange>(defaultRange(1));
   const [data, setData] = useState<VehicleSnapshot[]>(initialData);
 
@@ -43,9 +45,13 @@ export default function SocHistory({ initialData }: Props) {
   const useTime = daysBetween(range) <= 2;
 
   const points = sampled.map((s) => ({
-    label: useTime ? fmtChartTime(s.recorded_at, tz) : fmtDate(s.recorded_at, tz),
+    label: useTime ? fmtChartTime(s.recorded_at, tz, hour12) : fmtDate(s.recorded_at, tz),
     soc: s.soc_pct,
-    range_km: s.range_km != null ? Math.round(s.range_km) : null,
+    range_km: s.range_km != null
+      ? distanceUnit === "miles"
+        ? Math.round(s.range_km * 0.621371)
+        : Math.round(s.range_km)
+      : null,
   }));
 
   const hasRange = points.some((p) => p.range_km != null);
@@ -58,7 +64,7 @@ export default function SocHistory({ initialData }: Props) {
           {hasRange && (
             <div className="hidden sm:flex items-center gap-3 text-xs text-gray-500">
               <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-[#00B0F0]" /> SoC %</span>
-              <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-[#34d399]" /> Range km</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-[#34d399]" /> Range {distanceUnit === "miles" ? "mi" : "km"}</span>
             </div>
           )}
         </div>
@@ -106,7 +112,7 @@ export default function SocHistory({ initialData }: Props) {
             <Tooltip
               contentStyle={{ background: "#1e2535", border: "none", borderRadius: 8, fontSize: 12 }}
               formatter={(val: number, key: string) =>
-                key === "soc" ? [`${val}%`, "SoC"] : [`${val} km`, "Range"]
+                key === "soc" ? [`${val}%`, "SoC"] : [`${val} ${distanceUnit === "miles" ? "mi" : "km"}`, "Range"]
               }
             />
             <Area

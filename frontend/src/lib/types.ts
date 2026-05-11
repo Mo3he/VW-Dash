@@ -42,8 +42,16 @@ export interface ChargingSession {
   latitude: number | null;
   longitude: number | null;
   location_name: string | null;
+  charger_id: number | null;
   currency_symbol: string;
   currency_after: boolean;
+}
+
+export interface Charger {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
 }
 
 export interface Trip {

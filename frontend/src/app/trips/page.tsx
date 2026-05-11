@@ -9,6 +9,7 @@ import TempEfficiency from "./TempEfficiency";
 import EfficiencyChart from "./EfficiencyChart";
 import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
 import { authHeaders } from "@/lib/auth";
+import { useDistanceUnit } from "@/app/SettingsProvider";
 
 const PAGE_SIZE = 20;
 
@@ -65,6 +66,8 @@ export default function TripsPage() {
   const fmtCost = (n: number) =>
     after ? `${n.toFixed(2)} ${sym}` : `${sym}${n.toFixed(2)}`;
 
+  const distanceUnit = useDistanceUnit();
+
   function pctDelta(current: number, prev: number | undefined): number | null {
     if (prev == null || prev === 0) return null;
     return ((current - prev) / prev) * 100;
@@ -117,7 +120,9 @@ export default function TripsPage() {
             />
             <StatusCard
               label="Distance"
-              value={`${stats.total_km.toLocaleString("sv-SE")} km`}
+              value={distanceUnit === "miles"
+                ? `${(stats.total_km * 0.621371).toLocaleString("sv-SE", { maximumFractionDigits: 0 })} mi`
+                : `${stats.total_km.toLocaleString("sv-SE")} km`}
               delta={pctDelta(stats.total_km, stats.prev?.total_km)}
             />
             <StatusCard
@@ -130,15 +135,19 @@ export default function TripsPage() {
               label="Avg efficiency"
               value={
                 stats.avg_efficiency_kwh_100km != null
-                  ? `${stats.avg_efficiency_kwh_100km} kWh/100km`
+                  ? distanceUnit === "miles"
+                    ? `${(stats.avg_efficiency_kwh_100km * 1.60934).toFixed(1)} kWh/100mi`
+                    : `${stats.avg_efficiency_kwh_100km} kWh/100km`
                   : "—"
               }
             />
             <StatusCard
-              label="Cost per 100km"
+              label={distanceUnit === "miles" ? "Cost per 100mi" : "Cost per 100km"}
               value={
                 stats.cost_per_100km != null
-                  ? fmtCost(stats.cost_per_100km)
+                  ? distanceUnit === "miles"
+                    ? fmtCost(stats.cost_per_100km * 1.60934)
+                    : fmtCost(stats.cost_per_100km)
                   : "—"
               }
             />

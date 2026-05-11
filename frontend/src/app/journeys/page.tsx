@@ -5,6 +5,7 @@ import type { Journey, PopularRoute } from "@/lib/types";
 import { MapPin, ChevronDown } from "lucide-react";
 import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
 import JourneyMap from "@/components/JourneyMap";
+import { useDistanceUnit } from "@/app/SettingsProvider";
 
 type RouteCache = Record<string, { lat: number; lon: number }[][]>;
 
@@ -14,6 +15,7 @@ export default function JourneysPage() {
   const [popular, setPopular] = useState<PopularRoute[]>([]);
   const [range, setRange] = useState<DateRange>(defaultRange(30));
   const [loading, setLoading] = useState(true);
+  const distanceUnit = useDistanceUnit();
   const [expandedJourney, setExpandedJourney] = useState<string | null>(null);
   const [routeCache, setRouteCache] = useState<RouteCache>({});
 
@@ -79,7 +81,11 @@ export default function JourneysPage() {
                     <span className="truncate">{r.end}</span>
                   </div>
                   {r.avg_distance_km && (
-                    <div className="text-xs text-gray-500 mt-0.5">{r.avg_distance_km} km avg</div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {distanceUnit === "miles"
+                        ? `${(r.avg_distance_km * 0.621371).toFixed(1)} mi avg`
+                        : `${r.avg_distance_km} km avg`}
+                    </div>
                   )}
                 </div>
                 <div className="text-xs text-[#00B0F0] shrink-0">{r.count}×</div>
@@ -110,7 +116,11 @@ export default function JourneysPage() {
                   )}
                 </div>
                 <div className="text-xs text-gray-400 shrink-0 text-right mr-1">
-                  <div className="text-sm font-medium text-white">{j.total_km} km</div>
+                  <div className="text-sm font-medium text-white">
+                    {distanceUnit === "miles"
+                      ? `${(j.total_km * 0.621371).toFixed(1)} mi`
+                      : `${j.total_km} km`}
+                  </div>
                   <div className="text-gray-500 mt-0.5">{j.trip_count} trip{j.trip_count !== 1 ? "s" : ""} · {j.total_kwh} kWh</div>
                 </div>
                 <ChevronDown
@@ -137,7 +147,9 @@ export default function JourneysPage() {
                         </div>
                         {t.distance_km != null && (
                           <div className="text-xs text-gray-600 mt-0.5">
-                            {t.distance_km.toFixed(1)} km
+                            {distanceUnit === "miles"
+                              ? `${(t.distance_km * 0.621371).toFixed(1)} mi`
+                              : `${t.distance_km.toFixed(1)} km`}
                             {t.kwh_used != null && ` · ${t.kwh_used} kWh`}
                           </div>
                         )}

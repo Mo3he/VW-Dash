@@ -3,11 +3,12 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import type { RangeHealth } from "@/lib/types";
-import { useTimezone } from "@/app/SettingsProvider";
+import { useTimezone, useDistanceUnit } from "@/app/SettingsProvider";
 import { fmtDate } from "@/lib/format";
 
 export default function RangeHealthCard({ data }: { data: RangeHealth }) {
   const tz = useTimezone();
+  const distanceUnit = useDistanceUnit();
 
   if (data.history.length === 0) {
     return (
@@ -20,13 +21,17 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
     );
   }
 
+  const toUnit = (km: number) => distanceUnit === "miles" ? Math.round(km * 0.621371) : Math.round(km);
+  const unitLabel = distanceUnit === "miles" ? "mi" : "km";
+
   const points = data.history.map((h) => ({
     date: fmtDate(h.date, tz),
-    range_km: Math.round(h.range_km),
+    range_km: toUnit(h.range_km),
   }));
 
+  const ratedInUnit = toUnit(data.rated_range_km);
   const latest = points[points.length - 1]?.range_km ?? null;
-  const pct = latest != null ? Math.round((latest / data.rated_range_km) * 100) : null;
+  const pct = latest != null ? Math.round((latest / ratedInUnit) * 100) : null;
 
   return (
     <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4">
@@ -34,7 +39,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
         <div className="text-xs text-gray-500 uppercase tracking-wider">Estimated range vs rated range</div>
         {latest != null && (
           <span className="text-sm font-semibold text-[#00B0F0]">
-            {latest} km{pct != null && <span className="text-gray-500 font-normal ml-1">({pct}%)</span>}
+            {latest} {unitLabel}{pct != null && <span className="text-gray-500 font-normal ml-1">({pct}%)</span>}
           </span>
         )}
       </div>
@@ -56,15 +61,15 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
             tickFormatter={(v) => `${v}`}
           />
           <ReferenceLine
-            y={data.rated_range_km}
+            y={ratedInUnit}
             stroke="#6b7280"
             strokeDasharray="4 4"
             strokeWidth={1}
-            label={{ value: `Rated ${data.rated_range_km} km`, position: "insideTopRight", fill: "#6b7280", fontSize: 10 }}
+            label={{ value: `Rated ${ratedInUnit} ${unitLabel}`, position: "insideTopRight", fill: "#6b7280", fontSize: 10 }}
           />
           <Tooltip
             contentStyle={{ background: "#1e2535", border: "none", borderRadius: 8, fontSize: 12 }}
-            formatter={(val: number) => [`${val} km`, "Extrapolated range (@ 100% SoC)"]}
+            formatter={(val: number) => [`${val} ${unitLabel}`, "Extrapolated range (@ 100% SoC)"]}
           />
           <Line
             type="monotone"

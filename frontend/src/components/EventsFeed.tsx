@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import type { EventItem } from "@/lib/types";
 import { api } from "@/lib/api";
-import { useTimezone } from "@/app/SettingsProvider";
+import { useTimezone, useDistanceUnit } from "@/app/SettingsProvider";
 import { fmtDate } from "@/lib/format";
 
 const EVENT_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = {
@@ -31,11 +31,15 @@ function timeAgo(iso: string, tz: string): string {
   return fmtDate(iso, tz);
 }
 
-function eventSubtext(item: EventItem): string | null {
+function eventSubtext(item: EventItem, distanceUnit: "km" | "miles"): string | null {
   const d = item.detail;
   if (!d) return null;
-  if (item.event_type === "trip_ended" && d.distance_km != null)
-    return `${Number(d.distance_km).toFixed(1)} km`;
+  if (item.event_type === "trip_ended" && d.distance_km != null) {
+    const km = Number(d.distance_km);
+    return distanceUnit === "miles"
+      ? `${(km * 0.621371).toFixed(1)} mi`
+      : `${km.toFixed(1)} km`;
+  }
   if (item.event_type === "charging_ended" && d.kwh_added != null)
     return `${Number(d.kwh_added).toFixed(1)} kWh`;
   if ((item.event_type === "trip_started" || item.event_type === "charging_started") && d.soc_pct != null)
@@ -51,6 +55,7 @@ interface Props {
 export default function EventsFeed({ pollTrigger }: Props) {
   const [events, setEvents] = useState<EventItem[]>([]);
   const tz = useTimezone();
+  const distanceUnit = useDistanceUnit();
   const lastFetch = useRef(0);
 
   useEffect(() => {
@@ -84,7 +89,7 @@ export default function EventsFeed({ pollTrigger }: Props) {
             icon: <Car size={13} />,
             color: "text-gray-400",
           };
-          const sub = eventSubtext(e);
+          const sub = eventSubtext(e, distanceUnit);
           return (
             <div key={e.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
               <span className={`shrink-0 ${cfg.color}`}>{cfg.icon}</span>

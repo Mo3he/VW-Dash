@@ -24,6 +24,8 @@ class SettingsUpdate(BaseModel):
     vehicle_name: str | None = None
     battery_capacity_kwh: float | None = Field(default=None, gt=0)
     timezone: str | None = None
+    time_24h: bool | None = None
+    distance_unit: str | None = None
     access_token: str | None = None
     webhook_url: str | None = None
 
@@ -42,6 +44,8 @@ def get_settings():
         "vehicle_name": settings.vehicle_name,
         "battery_capacity_kwh": settings.battery_capacity_kwh,
         "timezone": settings.timezone,
+        "time_24h": settings.time_24h,
+        "distance_unit": settings.distance_unit,
     }
 
 
@@ -65,6 +69,8 @@ def update_settings(body: SettingsUpdate):
         vehicle_name=body.vehicle_name,
         battery_capacity_kwh=body.battery_capacity_kwh,
         timezone=body.timezone,
+        time_24h=body.time_24h,
+        distance_unit=body.distance_unit,
         access_token=body.access_token,
         webhook_url=body.webhook_url,
     )

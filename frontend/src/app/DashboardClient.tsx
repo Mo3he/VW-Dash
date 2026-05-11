@@ -11,7 +11,7 @@ import VampireDrainCard from "@/components/VampireDrainCard";
 import { useVehicleLive } from "@/hooks/useVehicleLive";
 import type { VehicleSnapshot } from "@/lib/types";
 import { api } from "@/lib/api";
-import { useTimezone } from "./SettingsProvider";
+import { useTimezone, useHour12, useDistanceUnit } from "./SettingsProvider";
 import { fmtTime } from "@/lib/format";
 
 interface Props {
@@ -59,6 +59,8 @@ function formatParkingDuration(parkingTime: string | null): string | null {
 export default function DashboardClient({ initial, history }: Props) {
   const { data: live, connected } = useVehicleLive();
   const tz = useTimezone();
+  const hour12 = useHour12();
+  const distanceUnit = useDistanceUnit();
   const [climateLoading, setClimateLoading] = useState(false);
   const [climateMsg, setClimateMsg] = useState<string | null>(null);
 
@@ -115,11 +117,11 @@ export default function DashboardClient({ initial, history }: Props) {
         <div className="flex flex-col items-end gap-0.5">
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
             <span className="text-gray-600">Car</span>
-            {carCapturedAt ? fmtTime(carCapturedAt, tz) : "—"}
+            {carCapturedAt ? fmtTime(carCapturedAt, tz, hour12) : "—"}
           </div>
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
             <span className="text-gray-600">Server</span>
-            {recordedAt ? fmtTime(recordedAt, tz) : "—"}
+            {recordedAt ? fmtTime(recordedAt, tz, hour12) : "—"}
           </div>
         </div>
       </div>
@@ -175,7 +177,9 @@ export default function DashboardClient({ initial, history }: Props) {
               remainingMin
                 ? `~${remainingMin} min remaining`
                 : chargeRate != null
-                ? `+${chargeRate.toFixed(0)} km/h`
+                ? distanceUnit === "miles"
+                  ? `+${(chargeRate * 0.621371).toFixed(0)} mph`
+                  : `+${chargeRate.toFixed(0)} km/h`
                 : undefined
             }
           />
@@ -215,7 +219,9 @@ export default function DashboardClient({ initial, history }: Props) {
               ? (
                 <span className="flex items-center gap-1.5">
                   <Gauge size={16} className="text-gray-400" />
-                  {Math.round(odometer).toLocaleString("sv-SE")} km
+                  {distanceUnit === "miles"
+                    ? `${Math.round(odometer * 0.621371).toLocaleString("sv-SE")} mi`
+                    : `${Math.round(odometer).toLocaleString("sv-SE")} km`}
                 </span>
               )
               : "—"

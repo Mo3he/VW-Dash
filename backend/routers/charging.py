@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from utils import iso_utc
-from models import ChargingSession, VehicleSnapshot
+from models import Charger, ChargingSession, VehicleSnapshot
 from config import settings
 
 
@@ -30,6 +30,7 @@ class SessionUpdate(BaseModel):
     location_name: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    charger_id: Optional[int] = None  # use model_fields_set to detect explicit null
 
 router = APIRouter(prefix="/api/charging", tags=["charging"])
 
@@ -121,12 +122,25 @@ def update_session(session_id: int, body: SessionUpdate, db: Session = Depends(g
         session.peak_power_kw = body.peak_power_kw
     if body.kwh_added_real is not None:
         session.kwh_added_real = body.kwh_added_real
-    if body.location_name is not None:
-        session.location_name = body.location_name
     if body.latitude is not None:
         session.latitude = body.latitude
     if body.longitude is not None:
         session.longitude = body.longitude
+
+    # charger_id: check model_fields_set to distinguish "not sent" vs explicit null
+    if "charger_id" in body.model_fields_set:
+        if body.charger_id is not None:
+            charger = db.get(Charger, body.charger_id)
+            if charger is None:
+                raise HTTPException(status_code=404, detail="Charger not found")
+            session.charger_id = charger.id
+            session.location_name = charger.name
+        else:
+            session.charger_id = None
+            if body.location_name is not None:
+                session.location_name = body.location_name or None
+    elif body.location_name is not None:
+        session.location_name = body.location_name or None
 
     db.commit()
     db.refresh(session)
@@ -325,6 +339,7 @@ def _session_to_dict(s: ChargingSession) -> dict:
         "latitude": s.latitude,
         "longitude": s.longitude,
         "location_name": s.location_name,
+        "charger_id": s.charger_id,
         "currency_symbol": settings.currency_symbol,
         "currency_after": settings.currency_after,
     }

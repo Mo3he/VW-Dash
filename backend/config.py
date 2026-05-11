@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     vehicle_name: str = "ID.4"
     battery_capacity_kwh: float = 77.0
     timezone: str = "UTC"
+    time_24h: bool = False
+    distance_unit: str = "km"  # "km" or "miles"
 
     # Security
     secret_key: str = ""        # used to encrypt vw_password in config.json; set via SECRET_KEY env var

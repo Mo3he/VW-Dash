@@ -3,12 +3,13 @@ import { useState, useEffect, useCallback } from "react";
 import { Download } from "lucide-react";
 import { api } from "@/lib/api";
 import { authHeaders } from "@/lib/auth";
-import type { ChargingSession, ChargingStats, RangeHealth } from "@/lib/types";
+import type { Charger, ChargingSession, ChargingStats, RangeHealth } from "@/lib/types";
 import StatusCard from "@/components/StatusCard";
 import ChargeMap from "@/components/ChargeMap";
 import ChargingSessionList from "./ChargingSessionList";
 import RangeHealthCard from "@/components/BatteryHealthCard";
 import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
+import { useDistanceUnit } from "@/app/SettingsProvider";
 
 const PAGE_SIZE = 20;
 
@@ -19,6 +20,7 @@ export default function ChargingPage() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [range, setRange] = useState<DateRange>(defaultRange(30));
+  const [chargers, setChargers] = useState<Charger[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -44,7 +46,11 @@ export default function ChargingPage() {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadStats(), loadSessions(0, false)]).finally(() => setLoading(false));
+    Promise.all([
+      loadStats(),
+      loadSessions(0, false),
+      api.chargers.list().then(setChargers).catch(() => {}),
+    ]).finally(() => setLoading(false));
   }, [loadStats, loadSessions]);
 
   async function handleLoadMore() {
@@ -58,6 +64,7 @@ export default function ChargingPage() {
     loadStats();
   }
 
+  const distanceUnit = useDistanceUnit();
   const sym = stats?.currency_symbol ?? "$";
   const after = stats?.currency_after ?? false;
   const fmtCost = (n: number) =>
@@ -131,7 +138,9 @@ export default function ChargingPage() {
             />
             <StatusCard
               label="Range added"
-              value={`${stats.total_range_km} km`}
+              value={distanceUnit === "miles"
+                ? `${(stats.total_range_km * 0.621371).toFixed(0)} mi`
+                : `${stats.total_range_km} km`}
             />
             <StatusCard
               label="AC / DC"
@@ -177,12 +186,14 @@ export default function ChargingPage() {
       <ChargingSessionList
         sessions={sessions}
         total={total}
+        chargers={chargers}
         onSessionUpdated={handleSessionUpdated}
         onSessionDeleted={(id) => {
           setSessions((prev) => prev.filter((s) => s.id !== id));
           setTotal((n) => n - 1);
           loadStats();
         }}
+        onChargerCreated={(c) => setChargers((prev) => [...prev, c].sort((a, b) => a.name.localeCompare(b.name)))}
       />
 
       {sessions.length < total && (

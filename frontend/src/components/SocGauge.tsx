@@ -1,4 +1,5 @@
 "use client";
+import { useDistanceUnit } from "@/app/SettingsProvider";
 
 interface Props {
   soc: number;
@@ -7,6 +8,7 @@ interface Props {
 }
 
 export default function SocGauge({ soc, rangeKm, targetSoc }: Props) {
+  const distanceUnit = useDistanceUnit();
   const radius = 80;
   const stroke = 12;
   const normalizedRadius = radius - stroke / 2;
@@ -56,7 +58,9 @@ export default function SocGauge({ soc, rangeKm, targetSoc }: Props) {
         </div>
         {rangeKm != null && (
           <div className="text-gray-400 text-sm mt-1">
-            {Math.round(rangeKm)} km estimated
+            {distanceUnit === "miles"
+              ? `${Math.round(rangeKm * 0.621371)} mi`
+              : `${Math.round(rangeKm)} km`} estimated
           </div>
         )}
       </div>

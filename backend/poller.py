@@ -18,6 +18,7 @@ from config import settings
 from database import SessionLocal
 from geocoder import reverse_geocode
 from models import ChargingSession, Event, Trip, TripPoint, VehicleSnapshot
+from routers.chargers import find_nearby
 from ws import broadcast
 from utils import as_utc, iso_utc
 import webhook
@@ -160,7 +161,14 @@ def init_state_from_db() -> None:
             _sel(VehicleSnapshot).order_by(VehicleSnapshot.recorded_at.desc()).limit(1)
         ).scalars().first()
         if last_snap:
-            _prev_parking_time = last_snap.parking_time
+            # Intentionally do NOT seed _prev_parking_time here.
+            # Seeding it causes a spurious trip on the first post-restart poll:
+            # if the VW API returns a stale/different carCapturedTimestamp
+            # (which it does routinely even while parked), parking_disappeared fires
+            # → trip opens; next poll has a timestamp → parking_appeared fires → trip
+            # closes, creating a zero-distance phantom trip every restart.
+            # Leaving it as None means parking_disappeared can't fire on poll #1;
+            # the first poll just establishes the baseline state safely.
             _prev_lat = last_snap.latitude
             _prev_lon = last_snap.longitude
     except Exception as exc:
@@ -388,6 +396,11 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
         db.add(session)
         db.flush()
         _active_charging_session_id = session.id
+        if snap.latitude and snap.longitude:
+            nearby = find_nearby(db, snap.latitude, snap.longitude)
+            if nearby:
+                session.charger_id = nearby.id
+                session.location_name = nearby.name
         _charging_power_samples = []
         if snap.charge_power_kw and snap.charge_power_kw > 0:
             _charging_power_samples.append(snap.charge_power_kw)

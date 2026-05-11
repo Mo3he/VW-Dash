@@ -1,18 +1,20 @@
 "use client";
 import { useState } from "react";
-import { Zap, Pencil, X, Check, MapPin, Trash2, ChevronDown } from "lucide-react";
+import { Zap, Pencil, X, Check, MapPin, Trash2, ChevronDown, Plus } from "lucide-react";
 import ChargingCurve from "@/components/ChargingCurve";
-import type { ChargingSession } from "@/lib/types";
+import type { Charger, ChargingSession } from "@/lib/types";
 import { api } from "@/lib/api";
 import clsx from "clsx";
-import { useTimezone } from "@/app/SettingsProvider";
-import { fmtDateTime } from "@/lib/format";
+import { useTimezone, useHour12, useDistanceUnit } from "@/app/SettingsProvider";
+import { fmtDateTime, fmtDist } from "@/lib/format";
 
 interface Props {
   sessions: ChargingSession[];
   total: number;
+  chargers: Charger[];
   onSessionUpdated: (updated: ChargingSession) => void;
   onSessionDeleted?: (id: number) => void;
+  onChargerCreated?: (charger: Charger) => void;
 }
 
 interface EditState {
@@ -24,6 +26,7 @@ interface EditState {
   cost_per_kwh: string;
   charge_type: string;
   peak_power_kw: string;
+  charger_id: number | null;
   location_name: string;
 }
 
@@ -45,12 +48,15 @@ function sessionToEditState(s: ChargingSession): EditState {
     cost_per_kwh: s.cost_per_kwh?.toString() ?? "",
     charge_type: s.charge_type ?? "AC",
     peak_power_kw: s.peak_power_kw?.toString() ?? "",
+    charger_id: s.charger_id,
     location_name: s.location_name ?? "",
   };
 }
 
-export default function ChargingSessionList({ sessions, total, onSessionUpdated, onSessionDeleted }: Props) {
+export default function ChargingSessionList({ sessions, total, chargers, onSessionUpdated, onSessionDeleted, onChargerCreated }: Props) {
   const tz = useTimezone();
+  const hour12 = useHour12();
+  const distanceUnit = useDistanceUnit();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -84,7 +90,11 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated,
       if (editState.cost !== "") body.cost = parseFloat(editState.cost);
       if (editState.charge_type) body.charge_type = editState.charge_type;
       if (editState.peak_power_kw !== "") body.peak_power_kw = parseFloat(editState.peak_power_kw);
-      body.location_name = editState.location_name || null;
+      // Always send charger_id so backend can distinguish explicit null from "not set"
+      body.charger_id = editState.charger_id;
+      if (editState.charger_id == null) {
+        body.location_name = editState.location_name || null;
+      }
 
       const updated = await api.charging.updateSession(s.id, body as Partial<ChargingSession>);
       onSessionUpdated(updated);
@@ -119,7 +129,7 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated,
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex flex-col">
-                <div className="text-sm text-white font-medium">{fmtDateTime(s.started_at, tz)}</div>
+                <div className="text-sm text-white font-medium">{fmtDateTime(s.started_at, tz, hour12)}</div>
                 {s.location_name && (
                   <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
                     <MapPin size={10} className="text-[#00B0F0] shrink-0" />
@@ -276,16 +286,69 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated,
                     />
                   </label>
                 </div>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-gray-500">Location name</span>
-                  <input
-                    type="text"
-                    value={editState.location_name}
-                    onChange={(e) => setEditState({ ...editState, location_name: e.target.value })}
-                    placeholder="e.g. Home, Work, Tesla Supercharger"
-                    className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white w-full"
-                  />
-                </label>
+                <div className="flex flex-col gap-2">
+                  {chargers.length > 0 && (
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-gray-500">Saved charger</span>
+                      <select
+                        value={editState.charger_id?.toString() ?? ""}
+                        onChange={(e) => {
+                          const id = e.target.value ? parseInt(e.target.value) : null;
+                          const charger = chargers.find((c) => c.id === id);
+                          setEditState({
+                            ...editState,
+                            charger_id: id,
+                            location_name: charger ? charger.name : editState.location_name,
+                          });
+                        }}
+                        className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white"
+                      >
+                        <option value="">— No saved charger —</option>
+                        {chargers.map((c) => (
+                          <option key={c.id} value={c.id.toString()}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Location name</span>
+                    <input
+                      type="text"
+                      value={editState.location_name}
+                      disabled={editState.charger_id != null}
+                      onChange={(e) => setEditState({ ...editState, location_name: e.target.value })}
+                      placeholder="e.g. Home, Work, Tesla Supercharger"
+                      className={clsx(
+                        "rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white w-full",
+                        editState.charger_id != null && "opacity-50 cursor-not-allowed"
+                      )}
+                    />
+                  </label>
+                  {editState.charger_id == null && editState.location_name && s.latitude && s.longitude && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const created = await api.chargers.create({
+                            name: editState.location_name,
+                            latitude: s.latitude!,
+                            longitude: s.longitude!,
+                          });
+                          onChargerCreated?.(created);
+                          setEditState({ ...editState, charger_id: created.id });
+                        } catch {
+                          // ignore — user can still save without charger
+                        }
+                      }}
+                      className="flex items-center gap-1 text-xs text-[#00B0F0] hover:text-[#33c4ff] self-start transition"
+                    >
+                      <Plus size={11} />
+                      Save &quot;{editState.location_name}&quot; as charger
+                    </button>
+                  )}
+                </div>
                 {saveError && <div className="text-xs text-red-400">{saveError}</div>}
               </div>
             ) : (
@@ -321,7 +384,7 @@ export default function ChargingSessionList({ sessions, total, onSessionUpdated,
                 <div className="grid grid-cols-4 gap-2 text-center mt-3">
                   <div>
                     <div className="text-sm font-medium text-white">
-                      {s.range_added_km != null ? `${s.range_added_km} km` : "—"}
+                      {fmtDist(s.range_added_km, distanceUnit, s.range_added_miles)}
                     </div>
                     <div className="text-xs text-gray-500 mt-0.5">Range added</div>
                   </div>

@@ -17,7 +17,7 @@ from config import settings
 from database import Base, engine
 from sqlalchemy import text
 from poller import init_weconnect, init_state_from_db, poll
-from routers import charging, trips, vehicle, settings_router, import_router, events_router
+from routers import charging, trips, vehicle, settings_router, import_router, events_router, chargers as chargers_router
 from ws import connect, disconnect
 
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +40,7 @@ def _run_migrations() -> None:
             "ALTER TABLE trips ADD COLUMN start_address TEXT",
             "ALTER TABLE trips ADD COLUMN end_address TEXT",
             "ALTER TABLE vehicle_snapshots ADD COLUMN car_captured_at DATETIME",
+            "ALTER TABLE charging_sessions ADD COLUMN charger_id INTEGER",
         ]:
             try:
                 conn.execute(text(stmt))
@@ -97,6 +98,7 @@ async def auth_middleware(request: Request, call_next):
 
 app.include_router(vehicle.router)
 app.include_router(charging.router)
+app.include_router(chargers_router.router)
 app.include_router(trips.router)
 app.include_router(settings_router.router)
 app.include_router(import_router.router)

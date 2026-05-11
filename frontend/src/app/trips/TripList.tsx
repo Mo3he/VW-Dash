@@ -5,8 +5,8 @@ import { Zap, Gauge, MapPin, ChevronDown, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import TripMap from "@/components/TripMap";
 import { api } from "@/lib/api";
-import { useTimezone } from "@/app/SettingsProvider";
-import { fmtDateTime } from "@/lib/format";
+import { useTimezone, useHour12, useDistanceUnit } from "@/app/SettingsProvider";
+import { fmtDateTime, fmtDist } from "@/lib/format";
 
 interface Props {
   trips: Trip[];
@@ -37,6 +37,8 @@ export default function TripList({ trips, total, onDelete }: Props) {
   const [routeCache, setRouteCache] = useState<RouteCache>({});
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const tz = useTimezone();
+  const hour12 = useHour12();
+  const distanceUnit = useDistanceUnit();
 
   async function handleDelete(e: React.MouseEvent, id: number) {
     e.stopPropagation();
@@ -84,7 +86,7 @@ export default function TripList({ trips, total, onDelete }: Props) {
           onClick={() => toggleTrip(t.id)}
         >
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-white font-medium">{fmtDateTime(t.started_at, tz)}</div>
+            <div className="text-sm text-white font-medium">{fmtDateTime(t.started_at, tz, hour12)}</div>
             {onDelete && (
               <button
                 type="button"
@@ -114,9 +116,11 @@ export default function TripList({ trips, total, onDelete }: Props) {
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
               <div className="text-lg font-semibold text-white">
-                {t.distance_km != null ? t.distance_km.toFixed(1) : "—"}
+                {distanceUnit === "miles"
+                  ? (t.distance_miles != null ? t.distance_miles.toFixed(1) : t.distance_km != null ? (t.distance_km * 0.621371).toFixed(1) : "—")
+                  : (t.distance_km != null ? t.distance_km.toFixed(1) : "—")}
               </div>
-              <div className="text-xs text-gray-500 mt-0.5">km</div>
+              <div className="text-xs text-gray-500 mt-0.5">{distanceUnit === "miles" ? "mi" : "km"}</div>
             </div>
             <div>
               <div className="text-lg font-semibold text-white">
@@ -128,9 +132,13 @@ export default function TripList({ trips, total, onDelete }: Props) {
             </div>
             <div>
               <div className={clsx("text-lg font-semibold", efficiencyColor(t.efficiency_kwh_100km))}>
-                {t.efficiency_kwh_100km != null ? t.efficiency_kwh_100km : "—"}
+                {t.efficiency_kwh_100km != null
+                  ? distanceUnit === "miles"
+                    ? (t.efficiency_kwh_100km * 1.60934).toFixed(1)
+                    : t.efficiency_kwh_100km
+                  : "—"}
               </div>
-              <div className="text-xs text-gray-500 mt-0.5">kWh/100km</div>
+              <div className="text-xs text-gray-500 mt-0.5">{distanceUnit === "miles" ? "kWh/100mi" : "kWh/100km"}</div>
             </div>
           </div>
 
@@ -146,7 +154,11 @@ export default function TripList({ trips, total, onDelete }: Props) {
             <div>
               <div className="flex items-center justify-center gap-1 text-sm font-medium text-white">
                 <Gauge size={13} className="text-gray-400" />
-                {t.avg_speed_kmh != null ? `${Math.round(t.avg_speed_kmh)} km/h` : "—"}
+                {t.avg_speed_kmh != null
+                  ? distanceUnit === "miles"
+                    ? `${Math.round(t.avg_speed_kmh * 0.621371)} mph`
+                    : `${Math.round(t.avg_speed_kmh)} km/h`
+                  : "—"}
               </div>
               <div className="text-xs text-gray-500 mt-0.5">Avg speed</div>
             </div>

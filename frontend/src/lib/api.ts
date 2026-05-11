@@ -1,4 +1,5 @@
 import type {
+  Charger,
   RangeHealth,
   ChargeLocation,
   ChargingSession,
@@ -111,6 +112,14 @@ export const api = {
     journeys: (start: string, end: string) =>
       get<Journey[]>(`/trips/journeys?start_date=${start}&end_date=${end}`),
     delete: (id: number) => del(`/trips/${id}`),
+  },
+  chargers: {
+    list: () => get<Charger[]>("/chargers"),
+    create: (body: { name: string; latitude: number; longitude: number }) =>
+      post<Charger>("/chargers", body),
+    update: (id: number, body: { name?: string; latitude?: number; longitude?: number }) =>
+      patch<Charger>(`/chargers/${id}`, body),
+    delete: (id: number) => del(`/chargers/${id}`),
   },
   events: {
     list: (limit = 50, days = 3) =>

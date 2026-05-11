@@ -15,6 +15,8 @@ interface ServerSettings {
   vehicle_name: string;
   battery_capacity_kwh: number;
   timezone: string;
+  time_24h: boolean;
+  distance_unit: "km" | "miles";
 }
 
 interface FormState {
@@ -29,6 +31,8 @@ interface FormState {
   vehicle_name: string;
   battery_capacity_kwh: string;
   timezone: string;
+  time_24h: boolean;
+  distance_unit: "km" | "miles";
   access_token: string;
   webhook_url: string;
 }
@@ -50,6 +54,8 @@ function toForm(s: ServerSettings | null): FormState {
     vehicle_name: s?.vehicle_name ?? "ID.4",
     battery_capacity_kwh: String(s?.battery_capacity_kwh ?? 77),
     timezone: s?.timezone ?? "UTC",
+    time_24h: s?.time_24h ?? false,
+    distance_unit: s?.distance_unit ?? "km",
     access_token: "",
     webhook_url: "",
   };
@@ -155,6 +161,8 @@ export default function SettingsForm({ initial }: Props) {
       vehicle_name: form.vehicle_name,
       battery_capacity_kwh: Number(form.battery_capacity_kwh),
       timezone: form.timezone,
+      time_24h: form.time_24h,
+      distance_unit: form.distance_unit,
     };
 
     if (form.vw_username) body.vw_username = form.vw_username;
@@ -421,6 +429,46 @@ export default function SettingsForm({ initial }: Props) {
           </datalist>
           <span className="text-xs text-gray-600">IANA timezone — used for all date and time display</span>
         </label>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Time format</span>
+          <div className="flex rounded-lg overflow-hidden border border-white/10 text-xs w-fit">
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, time_24h: false }))}
+              className={`px-4 py-2 ${!form.time_24h ? "bg-[#00B0F0] text-[#001E50] font-semibold" : "bg-[#1e2535] text-gray-400"}`}
+            >
+              12h
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, time_24h: true }))}
+              className={`px-4 py-2 ${form.time_24h ? "bg-[#00B0F0] text-[#001E50] font-semibold" : "bg-[#1e2535] text-gray-400"}`}
+            >
+              24h
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Distance unit</span>
+          <div className="flex rounded-lg overflow-hidden border border-white/10 text-xs w-fit">
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, distance_unit: "km" }))}
+              className={`px-4 py-2 ${form.distance_unit === "km" ? "bg-[#00B0F0] text-[#001E50] font-semibold" : "bg-[#1e2535] text-gray-400"}`}
+            >
+              km
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, distance_unit: "miles" }))}
+              className={`px-4 py-2 ${form.distance_unit === "miles" ? "bg-[#00B0F0] text-[#001E50] font-semibold" : "bg-[#1e2535] text-gray-400"}`}
+            >
+              miles
+            </button>
+          </div>
+        </div>
       </div>
 
       <button
