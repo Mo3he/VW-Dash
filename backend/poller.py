@@ -19,7 +19,7 @@ from database import SessionLocal
 from geocoder import reverse_geocode
 from models import ChargingSession, Event, Trip, TripPoint, VehicleSnapshot
 from ws import broadcast
-from utils import iso_utc
+from utils import as_utc, iso_utc
 import webhook
 
 logger = logging.getLogger(__name__)
@@ -432,7 +432,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
             dist = raw_dist
             trip.distance_km = round(dist, 2)
             trip.distance_miles = round(dist * 0.621371, 2)
-            duration_h = (snap.recorded_at - trip.started_at.replace(tzinfo=timezone.utc)).total_seconds() / 3600
+            duration_h = (snap.recorded_at - as_utc(trip.started_at)).total_seconds() / 3600
             if duration_h > 0:
                 trip.avg_speed_kmh = round(dist / duration_h, 1)
     if trip.soc_start_pct and snap.soc_pct and trip.soc_start_pct > snap.soc_pct:
@@ -455,18 +455,27 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     plug_in = snap.plug_connected
     is_moving = not charging and not plug_in
 
+    # Require the odometer to have actually advanced before opening a new trip.
+    # This prevents a bare unplug (plug_in flips to False while parked) from
+    # immediately creating a spurious trip record.
+    odometer_moved = (
+        odometer is not None
+        and _prev_odometer is not None
+        and odometer > _prev_odometer
+    )
+
     # Force-close stale open trip before starting a new one
     if _active_trip_id is not None:
         trip = db.get(Trip, _active_trip_id)
         if trip and trip.started_at:
-            age_h = (datetime.now(timezone.utc) - trip.started_at.replace(tzinfo=timezone.utc)).total_seconds() / 3600
+            age_h = (datetime.now(timezone.utc) - as_utc(trip.started_at)).total_seconds() / 3600
             if age_h >= _TRIP_MAX_DURATION_H:
                 logger.warning("Force-closing trip %d — open for %.1fh", trip.id, age_h)
                 _close_trip(db, trip, snap)
                 _active_trip_id = None
                 _trip_start_odometer = None
 
-    if is_moving and _active_trip_id is None:
+    if is_moving and odometer_moved and _active_trip_id is None:
         trip = Trip(
             started_at=snap.recorded_at,
             soc_start_pct=snap.soc_pct,
