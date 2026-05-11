@@ -432,7 +432,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
             dist = raw_dist
             trip.distance_km = round(dist, 2)
             trip.distance_miles = round(dist * 0.621371, 2)
-            duration_h = (snap.recorded_at - trip.started_at).total_seconds() / 3600
+            duration_h = (snap.recorded_at - trip.started_at.replace(tzinfo=timezone.utc)).total_seconds() / 3600
             if duration_h > 0:
                 trip.avg_speed_kmh = round(dist / duration_h, 1)
     if trip.soc_start_pct and snap.soc_pct and trip.soc_start_pct > snap.soc_pct:
