@@ -3,6 +3,7 @@ import "./globals.css";
 import Nav from "@/components/Nav";
 import { SettingsProvider } from "./SettingsProvider";
 import AuthGate from "@/components/AuthGate";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "VW Dash",
@@ -34,14 +35,16 @@ async function getServerSettings(): Promise<{ timezone: string; vehicleName: str
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const { timezone, vehicleName, time24h, distanceUnit } = await getServerSettings();
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-[#0f1117]">
-        <AuthGate>
-          <SettingsProvider timezone={timezone} vehicleName={vehicleName} time24h={time24h} distanceUnit={distanceUnit}>
-            <Nav />
-            <main className="max-w-4xl mx-auto px-4 pb-24 pt-4">{children}</main>
-          </SettingsProvider>
-        </AuthGate>
+        <ThemeProvider>
+          <AuthGate>
+            <SettingsProvider timezone={timezone} vehicleName={vehicleName} time24h={time24h} distanceUnit={distanceUnit}>
+              <Nav />
+              <main className="max-w-4xl mx-auto px-4 pb-24 pt-4">{children}</main>
+            </SettingsProvider>
+          </AuthGate>
+        </ThemeProvider>
       </body>
     </html>
   );

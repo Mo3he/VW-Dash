@@ -14,6 +14,7 @@ import { api } from "@/lib/api";
 import { useTimezone, useHour12, useDistanceUnit } from "@/app/SettingsProvider";
 import { fmtChartTime, fmtDate } from "@/lib/format";
 import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
+import { useTheme, useAccentColor } from "@/components/ThemeProvider";
 
 interface Props {
   initialData: VehicleSnapshot[];
@@ -36,6 +37,16 @@ export default function SocHistory({ initialData }: Props) {
   const distanceUnit = useDistanceUnit();
   const [range, setRange] = useState<DateRange>(defaultRange(1));
   const [data, setData] = useState<VehicleSnapshot[]>(initialData);
+  const theme = useTheme();
+  const isDark = theme === "dark";
+  const accent = useAccentColor();
+  const tooltipStyle = {
+    background: isDark ? "#1e2535" : "#ffffff",
+    border: isDark ? "none" : "1px solid rgba(0,0,0,0.1)",
+    borderRadius: 8,
+    fontSize: 12,
+    color: isDark ? undefined : "#111827",
+  };
 
   useEffect(() => {
     api.vehicle.historyByRange(range.start, range.end).then(setData).catch(() => {});
@@ -78,8 +89,8 @@ export default function SocHistory({ initialData }: Props) {
           <ComposedChart data={points} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="socGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#00B0F0" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#00B0F0" stopOpacity={0} />
+                <stop offset="5%" stopColor={accent} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={accent} stopOpacity={0} />
               </linearGradient>
             </defs>
             <XAxis
@@ -110,7 +121,7 @@ export default function SocHistory({ initialData }: Props) {
               />
             )}
             <Tooltip
-              contentStyle={{ background: "#1e2535", border: "none", borderRadius: 8, fontSize: 12 }}
+              contentStyle={tooltipStyle}
               formatter={(val: number, key: string) =>
                 key === "soc" ? [`${val}%`, "SoC"] : [`${val} ${distanceUnit === "miles" ? "mi" : "km"}`, "Range"]
               }
@@ -119,7 +130,7 @@ export default function SocHistory({ initialData }: Props) {
               yAxisId="soc"
               type="monotone"
               dataKey="soc"
-              stroke="#00B0F0"
+              stroke={accent}
               strokeWidth={2}
               fill="url(#socGrad)"
               dot={false}

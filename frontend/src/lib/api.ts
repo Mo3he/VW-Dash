@@ -99,6 +99,7 @@ export const api = {
       post<{ status: string; action: string; target_state: string }>(
         `/vehicle/climate?action=${action}`
       ),
+    poll: () => post<{ status: string }>("/vehicle/poll"),
   },
   charging: {
     sessions: (limit = 20, offset = 0) =>

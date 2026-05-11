@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,14 @@ from config import settings
 from utils import iso_utc
 
 router = APIRouter(prefix="/api/vehicle", tags=["vehicle"])
+
+
+@router.post("/poll")
+async def force_poll():
+    """Trigger an immediate poll of the WeConnect API."""
+    from poller import poll
+    await run_in_threadpool(poll)
+    return {"status": "ok"}
 
 
 @router.get("/latest")

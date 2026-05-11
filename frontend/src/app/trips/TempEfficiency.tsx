@@ -8,6 +8,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import { useTheme } from "@/components/ThemeProvider";
 
 interface Props {
   data: Record<string, number>;
@@ -21,6 +22,15 @@ const COLORS: Record<string, string> = {
 };
 
 export default function TempEfficiency({ data }: Props) {
+  const theme = useTheme();
+  const isDark = theme === "dark";
+  const tooltipStyle = {
+    background: isDark ? "#1e2535" : "#ffffff",
+    border: isDark ? "none" : "1px solid rgba(0,0,0,0.1)",
+    borderRadius: 8,
+    fontSize: 12,
+    color: isDark ? undefined : "#111827",
+  };
   const chartData = Object.entries(data).map(([label, value]) => ({
     label: label.split(" ")[0],
     fullLabel: label,
@@ -46,12 +56,7 @@ export default function TempEfficiency({ data }: Props) {
             axisLine={false}
           />
           <Tooltip
-            contentStyle={{
-              background: "#1e2535",
-              border: "none",
-              borderRadius: 8,
-              fontSize: 12,
-            }}
+            contentStyle={tooltipStyle}
             formatter={(val: number, _: string, props) => [
               `${val} kWh/100km`,
               props.payload.fullLabel,

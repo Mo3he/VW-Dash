@@ -11,6 +11,7 @@ import {
 import type { Trip } from "@/lib/types";
 import { useTimezone } from "@/app/SettingsProvider";
 import { fmtDate } from "@/lib/format";
+import { useTheme } from "@/components/ThemeProvider";
 
 interface Props {
   trips: Trip[];
@@ -24,6 +25,15 @@ function downsample<T>(arr: T[], max: number): T[] {
 
 export default function EfficiencyChart({ trips }: Props) {
   const tz = useTimezone();
+  const theme = useTheme();
+  const isDark = theme === "dark";
+  const tooltipStyle = {
+    background: isDark ? "#1e2535" : "#ffffff",
+    border: isDark ? "none" : "1px solid rgba(0,0,0,0.1)",
+    borderRadius: 8,
+    fontSize: 12,
+    color: isDark ? undefined : "#111827",
+  };
   const filtered = [...trips]
     .filter((t) => t.efficiency_kwh_100km != null && t.distance_km != null && t.distance_km > 0.5)
     .reverse(); // chronological order
@@ -80,12 +90,7 @@ export default function EfficiencyChart({ trips }: Props) {
             strokeWidth={1}
           />
           <Tooltip
-            contentStyle={{
-              background: "#1e2535",
-              border: "none",
-              borderRadius: 8,
-              fontSize: 12,
-            }}
+            contentStyle={tooltipStyle}
             formatter={(val: number, _: string, props) => [
               `${val} kWh/100km`,
               `${props.payload.distance?.toFixed(1)} km`,

@@ -1,5 +1,6 @@
 "use client";
 import { useDistanceUnit } from "@/app/SettingsProvider";
+import { useAccentColor } from "@/components/ThemeProvider";
 
 interface Props {
   soc: number;
@@ -9,6 +10,7 @@ interface Props {
 
 export default function SocGauge({ soc, rangeKm, targetSoc }: Props) {
   const distanceUnit = useDistanceUnit();
+  const accent = useAccentColor();
   const radius = 80;
   const stroke = 12;
   const normalizedRadius = radius - stroke / 2;
@@ -16,7 +18,7 @@ export default function SocGauge({ soc, rangeKm, targetSoc }: Props) {
   const half = circumference / 2; // we use a half-circle
 
   const color =
-    soc >= 60 ? "#00B0F0" : soc >= 25 ? "#f59e0b" : "#ef4444";
+    soc >= 60 ? accent : soc >= 25 ? "#f59e0b" : "#ef4444";
 
   const filled = (soc / 100) * half;
 
@@ -27,7 +29,7 @@ export default function SocGauge({ soc, rangeKm, targetSoc }: Props) {
         <path
           d={`M ${stroke / 2} ${radius} A ${normalizedRadius} ${normalizedRadius} 0 0 1 ${radius * 2 - stroke / 2} ${radius}`}
           fill="none"
-          stroke="#1e2535"
+          style={{ stroke: "var(--soc-track)" }}
           strokeWidth={stroke}
           strokeLinecap="round"
         />

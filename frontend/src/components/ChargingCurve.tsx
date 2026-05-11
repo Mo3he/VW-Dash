@@ -5,6 +5,8 @@ import {
 } from "recharts";
 import { authHeaders } from "@/lib/auth";
 
+import { useTheme, useAccentColor } from "@/components/ThemeProvider";
+
 interface CurvePoint {
   t: string;
   kw: number | null;
@@ -18,6 +20,17 @@ interface Props {
 export default function ChargingCurve({ sessionId }: Props) {
   const [points, setPoints] = useState<CurvePoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const theme = useTheme();
+  const isDark = theme === "dark";
+  const accent = useAccentColor();
+  const tooltipStyle = {
+    background: isDark ? "#1a1f2e" : "#ffffff",
+    border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
+    borderRadius: 8,
+    fontSize: 11,
+    color: isDark ? undefined : "#111827",
+  };
+  const gridStroke = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)";
 
   useEffect(() => {
     setLoading(true);
@@ -45,15 +58,15 @@ export default function ChargingCurve({ sessionId }: Props) {
         <AreaChart data={data} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id={`cc-${sessionId}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#00B0F0" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="#00B0F0" stopOpacity={0} />
+              <stop offset="5%" stopColor={accent} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={accent} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis dataKey="i" hide />
           <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} domain={[0, "dataMax + 5"]} />
           <Tooltip
-            contentStyle={{ background: "#1a1f2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11 }}
+            contentStyle={tooltipStyle}
             labelFormatter={() => ""}
             formatter={(val: number, name: string) =>
               name === "kw" ? [`${val.toFixed(1)} kW`, "Power"] : [`${val}%`, "SoC"]
@@ -62,7 +75,7 @@ export default function ChargingCurve({ sessionId }: Props) {
           <Area
             type="monotone"
             dataKey="kw"
-            stroke="#00B0F0"
+            stroke={accent}
             strokeWidth={1.5}
             fill={`url(#cc-${sessionId})`}
             dot={false}

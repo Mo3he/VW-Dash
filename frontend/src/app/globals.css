@@ -5,10 +5,75 @@
 :root {
   --vw-blue: #001E50;
   --vw-teal: #00B0F0;
+
+  /* Dynamic theme vars — dark-mode defaults.
+     ThemeProvider overwrites these on mount via element.style.setProperty(). */
+  --accent:       #00B0F0;
+  --page-bg:      #0f1117;
+  --card-bg:      #161b27;
+  --card-bg-dark: #0d1117;
+  --card-bg-alt:  #1e2535;
+  --nav-bg:       #0a0d14;
+
+  /* SocGauge arc track (switches with theme via html.light rule below) */
+  --soc-track: #1e2535;
 }
 
 body {
-  background-color: #0f1117;
+  background-color: var(--page-bg, #0f1117);
   color: #f0f2f5;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+
+/* ─── Background classes routed through CSS vars ────────────────────────── */
+/* ThemeProvider sets --page-bg / --card-bg / etc. per theme + user prefs    */
+.bg-\[\#0f1117\]     { background-color: var(--page-bg); }
+.bg-\[\#0f1117\]\/90 { background-color: color-mix(in srgb, var(--page-bg) 90%, transparent); }
+.bg-\[\#161b27\]     { background-color: var(--card-bg); }
+.bg-\[\#1a1f2e\]     { background-color: var(--card-bg); }
+.bg-\[\#0a0d14\]     { background-color: var(--nav-bg); }
+.bg-\[\#0d1117\]     { background-color: var(--card-bg-dark); }
+.bg-\[\#1e2535\]     { background-color: var(--card-bg-alt); }
+
+/* ─── Accent colour classes routed through CSS var ──────────────────────── */
+.text-\[\#00B0F0\]                   { color: var(--accent); }
+.hover\:text-\[\#00B0F0\]:hover      { color: var(--accent); }
+.hover\:text-\[\#33c4ff\]:hover      { color: color-mix(in srgb, var(--accent) 70%, #fff); }
+.bg-\[\#00B0F0\]                     { background-color: var(--accent); }
+.hover\:bg-\[\#0090c8\]:hover        { background-color: color-mix(in srgb, var(--accent) 80%, #000); }
+.bg-\[\#00B0F0\]\/10                 { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+.bg-\[\#00B0F0\]\/20                 { background-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+.hover\:bg-\[\#00B0F0\]\/30:hover    { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.border-\[\#00B0F0\]                 { border-color: var(--accent); }
+.border-\[\#00B0F0\]\/50             { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.focus\:border-\[\#00B0F0\]:focus    { border-color: var(--accent); }
+.accent-\[\#00B0F0\]                 { accent-color: var(--accent); }
+
+/* ─── Light mode ─────────────────────────────────────────────────────────── */
+html.light {
+  color-scheme: light;
+  --soc-track: #d1d5db;
+}
+
+html.light body {
+  color: #111827;
+}
+
+/* Semi-transparent white utility overrides */
+html.light .bg-white\/5                  { background-color: rgba(0, 0, 0, 0.04); }
+html.light .bg-white\/10                 { background-color: rgba(0, 0, 0, 0.06); }
+html.light .hover\:bg-white\/5:hover     { background-color: rgba(0, 0, 0, 0.04); }
+html.light .hover\:bg-white\/10:hover    { background-color: rgba(0, 0, 0, 0.07); }
+
+/* Text overrides */
+html.light .text-white      { color: #111827; }
+html.light .text-white\/15  { color: rgba(17, 24, 39, 0.2); }
+html.light .text-white\/20  { color: rgba(17, 24, 39, 0.25); }
+html.light .text-white\/30  { color: rgba(17, 24, 39, 0.4); }
+html.light .text-white\/40  { color: rgba(17, 24, 39, 0.5); }
+
+/* Border overrides */
+html.light .border-white\/5   { border-color: rgba(0, 0, 0, 0.07); }
+html.light .border-white\/10  { border-color: rgba(0, 0, 0, 0.1); }
+html.light .border-white\/20  { border-color: rgba(0, 0, 0, 0.15); }
+

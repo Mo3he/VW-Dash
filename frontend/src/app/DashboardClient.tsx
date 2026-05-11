@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
-  Lock, Unlock, Plug, Thermometer, Zap, Wind, Gauge,
+  Lock, Unlock, Plug, Thermometer, Zap, Wind, Gauge, RefreshCw,
 } from "lucide-react";
 import SocGauge from "@/components/SocGauge";
 import StatusCard from "@/components/StatusCard";
@@ -56,13 +56,34 @@ function formatParkingDuration(parkingTime: string | null): string | null {
   return m > 0 ? `Parked ${h}h ${m}m ago` : `Parked ${h}h ago`;
 }
 
-export default function DashboardClient({ initial, history }: Props) {
+export default function DashboardClient({ initial: initialProp, history: historyProp }: Props) {
   const { data: live, connected } = useVehicleLive();
   const tz = useTimezone();
   const hour12 = useHour12();
   const distanceUnit = useDistanceUnit();
+  const [initial, setInitial] = useState<VehicleSnapshot | null>(initialProp);
+  const [history, setHistory] = useState<VehicleSnapshot[]>(historyProp);
+
+  // Fetch initial data client-side (token is in localStorage, not available to SSR)
+  useEffect(() => {
+    api.vehicle.latest().then(setInitial).catch(() => {});
+    api.vehicle.history(24).then(setHistory).catch(() => {});
+  }, []);
+
   const [climateLoading, setClimateLoading] = useState(false);
   const [climateMsg, setClimateMsg] = useState<string | null>(null);
+  const [polling, setPolling] = useState(false);
+
+  async function handleForcePoll() {
+    setPolling(true);
+    try {
+      await api.vehicle.poll();
+    } catch {
+      // ignore — WS will broadcast the result regardless
+    } finally {
+      setPolling(false);
+    }
+  }
 
   const soc = live?.soc_pct ?? initial?.soc_pct ?? null;
   const rangeKm = live?.range_km ?? initial?.range_km ?? null;
@@ -114,15 +135,25 @@ export default function DashboardClient({ initial, history }: Props) {
             </span>
           )}
         </div>
-        <div className="flex flex-col items-end gap-0.5">
-          <div className="flex items-center gap-1.5 text-xs text-gray-500">
-            <span className="text-gray-600">Car</span>
-            {carCapturedAt ? fmtTime(carCapturedAt, tz, hour12) : "—"}
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end gap-0.5">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="text-gray-600">Car</span>
+              {carCapturedAt ? fmtTime(carCapturedAt, tz, hour12) : "—"}
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="text-gray-600">Server</span>
+              {recordedAt ? fmtTime(recordedAt, tz, hour12) : "—"}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-gray-500">
-            <span className="text-gray-600">Server</span>
-            {recordedAt ? fmtTime(recordedAt, tz, hour12) : "—"}
-          </div>
+          <button
+            onClick={handleForcePoll}
+            disabled={polling}
+            title="Force poll"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-[#00B0F0] hover:bg-white/5 transition-colors disabled:opacity-40"
+          >
+            <RefreshCw size={15} className={polling ? "animate-spin" : ""} />
+          </button>
         </div>
       </div>
 
