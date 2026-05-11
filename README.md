@@ -44,7 +44,7 @@ A self-hosted dashboard for VW ID. series electric vehicles (ID.3, ID.4, ID.7, a
 - Vehicle name (shown in the top bar)
 - Currency symbol and position, electricity rate, rated range, poll interval, battery capacity
 - IANA timezone selector for all date/time display
-- **Access token** — optional API authentication (required token shown as login gate in browser)
+- **User management** — add or remove dashboard users (admin only)
 - **Webhook URL** — POST JSON notifications to ntfy.sh, Discord, Slack, or any HTTP endpoint on charge/trip events
 - VWsFriend import — upload a backup file directly from the browser (idempotent; safe to re-run)
 - Geocode missing addresses — backfills location data for imported history
@@ -64,7 +64,7 @@ curl -O https://raw.githubusercontent.com/Mo3he/VW-Dash/main/docker-compose.yml
 docker compose up -d
 ```
 
-Open **http://localhost:3000**, go to **Settings**, and enter your VW WeConnect email and password. The app starts polling immediately — no config files to edit.
+Open **http://localhost:3000**. On first launch you'll be prompted to create an admin account. After that, go to **Settings** and enter your VW WeConnect email and password. The app starts polling immediately.
 
 Data is persisted in a `./data/` folder next to the compose file.
 
@@ -108,19 +108,46 @@ Everything is managed through the **Settings page** in the UI — no `.env` file
 | Rated range | 410 km | Used for battery health (ID.4 RWD = 410, AWD = 337, Pro S = 418) |
 | Battery capacity | 77 kWh | Used for cycle counting and efficiency (ID.4 77, ID.3 58, ID.7 86) |
 | Timezone | UTC | IANA zone for all date/time display |
-| Access token | — | If set, API and UI require this token (stored in `data/config.json`) |
 | Webhook URL | — | POST JSON on charge/trip events (ntfy.sh, Discord, Slack, custom) |
 
-### Security
+### Authentication
 
-Password encryption: if the `SECRET_KEY` environment variable is set (any 32-byte string), the VW password is encrypted in `data/config.json` using Fernet symmetric encryption.
+The dashboard uses username/password login. On first launch you are prompted to create an admin account — no pre-configuration needed.
 
-API access control: set **Access token** in Settings. The dashboard will show a login gate. All API calls include `Authorization: Bearer <token>`.
+- **Add users** — Settings → Users (admin only). Each user gets their own username and password.
+- **Logout** — top-right corner of the nav bar.
+- Sessions expire after 24 hours.
+
+To encrypt the stored VW password at rest, set the `SECRET_KEY` environment variable (any 32-byte string):
 
 ```bash
-# Docker — set SECRET_KEY in your compose environment
 SECRET_KEY=your-32-char-secret docker compose up -d
 ```
+
+### HTTPS (optional)
+
+By default the dashboard runs on plain HTTP at port 3000. To enable HTTPS via a [Caddy](https://caddyserver.com/) reverse proxy:
+
+```bash
+# Download the extra compose file and Caddyfile
+curl -O https://raw.githubusercontent.com/Mo3he/VW-Dash/main/docker-compose.https.yml
+curl -O https://raw.githubusercontent.com/Mo3he/VW-Dash/main/Caddyfile
+
+# Start with HTTPS (Caddy handles certs — port 3000 is no longer exposed directly)
+docker compose -f docker-compose.https.yml up -d
+```
+
+**IP-only access (default):** Caddy issues a self-signed certificate. Your browser will warn on the first visit — click "Advanced → Proceed". The certificate is valid and encrypted; it's just not signed by a public CA.
+
+**Domain with automatic HTTPS (Let's Encrypt):** Edit `Caddyfile`, replace the `:443` block with your domain name:
+
+```
+yourdomain.com {
+  reverse_proxy vw-dash:3000
+}
+```
+
+Then remove the `:80` and `:443` blocks — Caddy will obtain and renew a real certificate automatically.
 
 ## Importing from VWsFriend
 
@@ -155,6 +182,7 @@ VW-Dash/
 │   ├── webhook.py           # Fire-and-forget webhook notifications
 │   ├── import_vwsfriend.py  # VWsFriend PostgreSQL backup importer
 │   └── routers/
+│       ├── auth.py          # Login, setup, user management (JWT)
 │       ├── vehicle.py       # Snapshots, history, battery health, vampire drain
 │       ├── trips.py         # Trip list, stats, route, export CSV, delete
 │       ├── charging.py      # Sessions, stats, curve, export CSV, delete
@@ -165,9 +193,12 @@ VW-Dash/
 │   └── src/
 │       ├── app/             # Next.js App Router pages (/, /trips, /charging, /journeys, /settings)
 │       ├── components/      # Shared UI: SocGauge, ChargeMap, TripMap, EventsFeed, PeriodSelector, …
-│       └── lib/             # API client & TypeScript types
+│       └── lib/             # API client, auth helpers & TypeScript types
 ├── data/                    # SQLite DB + config.json (git-ignored)
-├── docker-compose.yml
+├── Caddyfile                # Caddy reverse proxy config (used with docker-compose.https.yml)
+├── docker-compose.yml       # HTTP on port 3000 (default)
+├── docker-compose.https.yml # HTTPS via Caddy (optional)
+├── docker-compose.build.yml # Local build variant
 ├── start.sh
 └── CLAUDE.md
 ```

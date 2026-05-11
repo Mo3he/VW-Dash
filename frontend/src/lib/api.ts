@@ -74,6 +74,18 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const api = {
+  auth: {
+    needsSetup: () => get<{ needs_setup: boolean }>("/auth/setup"),
+    login: (username: string, password: string) =>
+      post<{ access_token: string; username: string; is_admin: boolean }>("/auth/login", { username, password }),
+    me: () => get<{ id: number; username: string; is_admin: boolean }>("/auth/me"),
+    users: () => get<{ id: number; username: string; is_admin: boolean; created_at: string }[]>("/auth/users"),
+    createUser: (username: string, password: string, is_admin: boolean) =>
+      post<{ id: number; username: string; is_admin: boolean; created_at: string }>("/auth/users", { username, password, is_admin }),
+    deleteUser: (id: number) => del(`/auth/users/${id}`),
+    changePassword: (id: number, password: string) =>
+      post<{ ok: boolean }>(`/auth/users/${id}/password`, { password }),
+  },
   vehicle: {
     latest: () => get<VehicleSnapshot>("/vehicle/latest"),
     history: (hours = 24) =>

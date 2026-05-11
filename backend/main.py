@@ -17,7 +17,8 @@ from config import settings
 from database import Base, engine
 from sqlalchemy import text
 from poller import init_weconnect, init_state_from_db, poll
-from routers import charging, trips, vehicle, settings_router, import_router, events_router, chargers as chargers_router
+from jose import jwt as _jwt, JWTError
+from routers import charging, trips, vehicle, settings_router, import_router, events_router, chargers as chargers_router, auth as auth_router
 from ws import connect, disconnect
 
 logging.basicConfig(level=logging.INFO)
@@ -83,19 +84,39 @@ app.add_middleware(
 )
 
 
+_AUTH_EXEMPT = {"/api/auth/login", "/api/auth/setup", "/api/health", "/api/version"}
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    token = settings.access_token
-    if not token:
-        return await call_next(request)
-    # Health check and WebSocket are exempt
-    if request.url.path in ("/api/health", "/ws"):
-        return await call_next(request)
-    auth = request.headers.get("Authorization", "")
-    if auth == f"Bearer {token}":
-        return await call_next(request)
-    return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    path = request.url.path
 
+    # Always-public paths
+    if path in _AUTH_EXEMPT or path == "/ws":
+        return await call_next(request)
+
+    # Settings GET is public so the Next.js server-side layout render can read UI prefs
+    if request.method == "GET" and path == "/api/settings":
+        return await call_next(request)
+
+    # No-auth mode: if no users exist yet, allow everything (first-run / setup)
+    with engine.connect() as conn:
+        user_count = conn.execute(text("SELECT COUNT(*) FROM users")).scalar() or 0
+    if user_count == 0:
+        return await call_next(request)
+
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    try:
+        payload = _jwt.decode(auth[7:], settings.jwt_secret, algorithms=["HS256"])
+        request.state.jwt_payload = payload
+    except JWTError:
+        return JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
+
+    return await call_next(request)
+
+app.include_router(auth_router.router)
 app.include_router(vehicle.router)
 app.include_router(charging.router)
 app.include_router(chargers_router.router)

@@ -64,7 +64,8 @@ class Settings(BaseSettings):
 
     # Security
     secret_key: str = ""        # used to encrypt vw_password in config.json; set via SECRET_KEY env var
-    access_token: str = ""      # if set, API requires Authorization: Bearer <token>
+    access_token: str = ""      # legacy single-token auth (ignored when users table has entries)
+    jwt_secret: str = ""        # auto-generated on first run; signs JWT session tokens
     cors_origins: str = "http://localhost:3000,http://localhost:3001"  # comma-separated
 
     # Notifications
@@ -101,11 +102,17 @@ def _save_config_file(data: dict) -> None:
 
 
 def _build_settings() -> Settings:
+    import secrets as _secrets
     base = Settings()
     overrides = _load_config_file()
     for key, val in overrides.items():
         if hasattr(base, key):
             setattr(base, key, val)
+    if not base.jwt_secret:
+        base.jwt_secret = _secrets.token_hex(32)
+        current = _load_config_file()
+        current["jwt_secret"] = base.jwt_secret
+        _save_config_file(current)
     return base
 
 

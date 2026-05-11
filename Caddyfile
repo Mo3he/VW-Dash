@@ -1,0 +1,25 @@
+# ── VW Dash reverse proxy ──────────────────────────────────────────────────
+#
+# IP ACCESS (default — self-signed cert, browser will warn once):
+#   Access the dashboard at https://<your-server-ip>
+#   To trust the cert permanently, install the Caddy local CA:
+#     docker exec <caddy-container> caddy trust
+#
+# DOMAIN WITH AUTO-HTTPS (Let's Encrypt — no browser warning):
+#   Replace the :443 block below with:
+#
+#     yourdomain.com {
+#       reverse_proxy vw-dash:3000
+#     }
+#
+#   Then remove the :443 and :80 blocks.
+# ───────────────────────────────────────────────────────────────────────────
+
+:443 {
+  tls internal
+  reverse_proxy vw-dash:3000
+}
+
+:80 {
+  redir https://{host}{uri} permanent
+}

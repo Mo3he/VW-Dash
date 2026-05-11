@@ -1,8 +1,8 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Upload } from "lucide-react";
-import { authHeaders, setToken } from "@/lib/auth";
+import { authHeaders, isAdmin } from "@/lib/auth";
 
 interface ServerSettings {
   vw_username: string;
@@ -34,7 +34,6 @@ interface FormState {
   timezone: string;
   time_24h: boolean;
   distance_unit: "km" | "miles";
-  access_token: string;
   webhook_url: string;
 }
 
@@ -57,7 +56,6 @@ function toForm(s: ServerSettings | null): FormState {
     timezone: s?.timezone ?? "UTC",
     time_24h: s?.time_24h ?? false,
     distance_unit: s?.distance_unit ?? "km",
-    access_token: "",
     webhook_url: "",
   };
 }
@@ -102,6 +100,137 @@ function GeocodeBackfill() {
         {started ? "Running in background…" : "Geocode missing addresses"}
       </button>
       {error && <div className="text-sm text-red-400 text-center">{error}</div>}
+    </div>
+  );
+}
+
+interface DashUser {
+  id: number;
+  username: string;
+  is_admin: boolean;
+}
+
+function UsersManager({ inputClass }: { inputClass: string }) {
+  const [adminView, setAdminView] = useState(false);
+  const [users, setUsers] = useState<DashUser[]>([]);
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newIsAdmin, setNewIsAdmin] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isAdmin()) {
+      setLoading(false);
+      return;
+    }
+    setAdminView(true);
+    fetch("/api/auth/users", { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then(setUsers)
+      .catch(() => setError("Failed to load users"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (!adminView || loading) return null;
+
+  async function addUser(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const res = await fetch("/api/auth/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ username: newUsername.trim(), password: newPassword, is_admin: newIsAdmin }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError((data as { detail?: string }).detail ?? "Failed to create user");
+      return;
+    }
+    const user = await res.json() as DashUser;
+    setUsers((u) => [...u, user]);
+    setNewUsername("");
+    setNewPassword("");
+    setNewIsAdmin(false);
+  }
+
+  async function removeUser(id: number) {
+    setError(null);
+    const res = await fetch(`/api/auth/users/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError((data as { detail?: string }).detail ?? "Failed to delete user");
+      return;
+    }
+    setUsers((u) => u.filter((x) => x.id !== id));
+  }
+
+  return (
+    <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-4">
+      <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">Users</div>
+
+      <div className="flex flex-col gap-2">
+        {users.map((u) => (
+          <div key={u.id} className="flex items-center justify-between text-sm py-1">
+            <div className="flex items-center gap-2">
+              <span className="text-white">{u.username}</span>
+              {u.is_admin && (
+                <span className="text-[10px] text-[#00B0F0] bg-[#00B0F0]/10 rounded px-1.5 py-0.5">admin</span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => removeUser(u.id)}
+              className="text-red-400 hover:text-red-300 text-xs transition-colors"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-white/5 pt-3">
+        <span className="text-xs text-gray-500 uppercase tracking-wider">Add user</span>
+        <form onSubmit={addUser} className="flex flex-col gap-2">
+          <input
+            type="text"
+            placeholder="Username"
+            value={newUsername}
+            onChange={(e) => setNewUsername(e.target.value)}
+            autoComplete="off"
+            className={inputClass}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            autoComplete="new-password"
+            className={inputClass}
+          />
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={newIsAdmin}
+              onChange={(e) => setNewIsAdmin(e.target.checked)}
+              className="accent-[#00B0F0] w-4 h-4"
+            />
+            <span className="text-xs text-gray-400">Admin</span>
+          </label>
+          <button
+            type="submit"
+            disabled={!newUsername.trim() || !newPassword}
+            className="flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-white font-medium py-2.5 text-sm hover:bg-white/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Add user
+          </button>
+        </form>
+      </div>
+
+      {error && <div className="text-sm text-red-400">{error}</div>}
     </div>
   );
 }
@@ -172,7 +301,6 @@ export default function SettingsForm({ initial }: Props) {
     // Only send password if user typed something new
     if (form.vw_password) body.vw_password = form.vw_password;
 
-    if (form.access_token) body.access_token = form.access_token;
     if (form.webhook_url !== undefined) body.webhook_url = form.webhook_url;
 
     try {
@@ -182,12 +310,8 @@ export default function SettingsForm({ initial }: Props) {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
-      // If a new access token was set, persist it locally too
-      if (form.access_token) {
-        setToken(form.access_token);
-      }
       setSaved(true);
-      setForm((f) => ({ ...f, vw_password: "", access_token: "", webhook_url: "" }));
+      setForm((f) => ({ ...f, vw_password: "", webhook_url: "" }));
       setTimeout(() => setSaved(false), 3000);
       router.refresh();
     } catch (err) {
@@ -488,24 +612,9 @@ export default function SettingsForm({ initial }: Props) {
         <div className="text-center text-sm text-red-400">{error}</div>
       )}
 
-      {/* Security */}
+      {/* Notifications */}
       <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-4">
-        <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">Security</div>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-gray-500 uppercase tracking-wider">Access token</span>
-          <input
-            type="password"
-            value={form.access_token}
-            onChange={(e) => set("access_token", e.target.value)}
-            placeholder="Leave blank to disable authentication"
-            autoComplete="new-password"
-            className={inputClass}
-          />
-          <span className="text-xs text-gray-600">
-            If set, the dashboard requires this token to access the API. Stored in backend config. Leave blank to disable.
-          </span>
-        </label>
-
+        <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">Notifications</div>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-gray-500 uppercase tracking-wider">Webhook URL</span>
           <input
@@ -520,6 +629,9 @@ export default function SettingsForm({ initial }: Props) {
           </span>
         </label>
       </div>
+
+      {/* Users — admin only */}
+      <UsersManager inputClass={inputClass} />
 
       {/* VWsFriend Import */}
       <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-4">

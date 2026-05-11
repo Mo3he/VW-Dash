@@ -1,11 +1,11 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BatteryCharging, Car, MapPin, Settings, Route } from "lucide-react";
+import { BatteryCharging, Car, MapPin, Settings, Route, LogOut } from "lucide-react";
 import clsx from "clsx";
 import { useVehicleName } from "@/app/SettingsProvider";
-import { authHeaders } from "@/lib/auth";
+import { authHeaders, clearAuth, getUsername } from "@/lib/auth";
 
 const links = [
   { href: "/", label: "Status", Icon: Car },
@@ -17,8 +17,19 @@ const links = [
 
 export default function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
   const vehicleName = useVehicleName();
   const [version, setVersion] = useState<string | null>(null);
+  const [username, setUsername] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUsername(getUsername());
+  }, []);
+
+  function handleLogout() {
+    clearAuth();
+    router.refresh();
+  }
 
   useEffect(() => {
     fetch("/api/version", { headers: authHeaders() })
@@ -38,7 +49,17 @@ export default function Nav() {
         {version && (
           <span className="text-gray-600 text-[10px]">v{version}</span>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
+          {username && (
+            <span className="text-gray-500 text-xs hidden sm:inline">{username}</span>
+          )}
+          <button
+            onClick={handleLogout}
+            title="Sign out"
+            className="opacity-70 hover:opacity-100 transition-opacity text-white"
+          >
+            <LogOut size={18} />
+          </button>
           <a
             href="https://github.com/Mo3he/VW-Dash"
             target="_blank"

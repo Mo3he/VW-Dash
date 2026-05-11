@@ -116,6 +116,17 @@ class TripPoint(Base):
     longitude: Mapped[float] = mapped_column(Float)
 
 
+class User(Base):
+    """Dashboard user with hashed password."""
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(256))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class Event(Base):
     """State-change events emitted by the poller (trip started, charging ended, etc.)."""
     __tablename__ = "events"
