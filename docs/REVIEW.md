@@ -63,7 +63,7 @@ Resolved: `passlib`+`bcrypt>=4.0` incompatibility (`ValueError: password cannot 
 ## 🟡 Reliability / correctness
 
 ### 11. ❌ Migrations are ad-hoc raw SQL
-Still in [backend/main.py:29-53](backend/main.py#L29-L53). Alembic is in `requirements.txt` but unused; `backend/migrations/` is empty. Error handling **was** improved (#13), but the broader Alembic conversion did not happen.
+Still in [backend/main.py:29-53](backend/main.py#L29-L53). Alembic is in `requirements.txt` but unused (no `backend/migrations/` directory exists — it was never created). Error handling **was** improved (#13), but the broader Alembic conversion did not happen.
 
 ### 12. ✅ Geocoding moved off the polling path
 Background queue + daemon worker thread at [backend/poller.py:54-98](backend/poller.py#L54-L98); `_close_trip` and the charging-end path call `_queue_geocode(...)` instead of `reverse_geocode(...)` inline.
@@ -135,10 +135,9 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 - ❌ `viewport.maximumScale: 1` is still set in [layout.tsx:15](frontend/src/app/layout.tsx#L15) — pinch-zoom remains blocked. Accessibility nit, easy to drop later.
 - ❌ No tests anywhere.
 - ❌ No backend lint/type config (ruff/black/mypy).
-- ❌ Empty `backend/migrations/` directory still present.
 - ❌ Distance/efficiency calc still duplicated across `poller.py`, `recover_trips.py`, and `import_vwsfriend.py` — not extracted to `utils.py`.
-- ❌ Dockerfile still installs `postgresql-client` (~70 MB) into the runtime image for the import-only `import_vwsfriend.py` script.
 - ❌ Alembic still in `requirements.txt` but unused — should be removed if staying with raw `ALTER TABLE` migrations.
+- ℹ️ Dockerfile installs `postgresql-client` — this is intentional; `pg_restore` is required for the file-based VWsFriend import path (UI + API). Not a candidate for removal.
 
 ---
 
@@ -150,7 +149,7 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 | Security & privacy (7–10) | 3 | 1 (#7 — encryption done, no `_file` variant, manual rotation still required) | 0 |
 | Reliability (11–20) | 8 | 0 | 2 (#11 Alembic, #15 naive-datetime) |
 | Features | 11 | 1 (manual entry) | 2 (SoH, multi-vehicle) |
-| Polish | 9 | 0 | 7 (a11y nit, tests, lint, empty migrations dir, dedup, Docker slimming, stale Alembic dep) |
+| Polish | 9 | 0 | 5 (a11y nit, tests, lint, dedup, stale Alembic dep) |
 
 **Operator follow-ups still required:**
 1. Rotate the VW WeConnect password that was committed in plaintext history.

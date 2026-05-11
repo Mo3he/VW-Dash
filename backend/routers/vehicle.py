@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import VehicleSnapshot
+from models import VehicleSnapshot, Trip
 from config import settings
 from utils import iso_utc
 
@@ -94,8 +94,39 @@ def battery_health(
         mid = len(s) // 2
         return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
 
+    # Weighted-average daily consumption from completed trips (kWh/100 km)
+    trip_rows = db.scalars(
+        select(Trip)
+        .where(
+            Trip.ended_at >= since,
+            Trip.ended_at <= until,
+            Trip.efficiency_kwh_100km.is_not(None),
+            Trip.distance_km.is_not(None),
+            Trip.distance_km > 0,
+        )
+        .order_by(Trip.ended_at.asc())
+    ).all()
+
+    daily_consumption: dict[str, tuple[float, float]] = defaultdict(lambda: (0.0, 0.0))  # day -> (sum_kwh, sum_km)
+    for t in trip_rows:
+        day = t.ended_at.strftime("%Y-%m-%d")
+        prev_kwh, prev_km = daily_consumption[day]
+        daily_consumption[day] = (prev_kwh + t.kwh_used, prev_km + t.distance_km)
+
+    def _weighted_consumption(day: str) -> float | None:
+        if day not in daily_consumption:
+            return None
+        total_kwh, total_km = daily_consumption[day]
+        if total_km <= 0:
+            return None
+        return round(total_kwh / total_km * 100, 1)
+
     points = [
-        {"date": day + "T12:00:00Z", "range_km": round(_median(vals))}
+        {
+            "date": day + "T12:00:00Z",
+            "range_km": round(_median(vals)),
+            "consumption_kwh_100km": _weighted_consumption(day),
+        }
         for day, vals in sorted(daily.items())
     ]
 

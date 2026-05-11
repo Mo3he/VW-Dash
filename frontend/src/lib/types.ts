@@ -125,7 +125,7 @@ export interface TripStats {
 
 export interface RangeHealth {
   rated_range_km: number;
-  history: { date: string; range_km: number }[];
+  history: { date: string; range_km: number; consumption_kwh_100km: number | null }[];
 }
 
 export interface PopularRoute {
