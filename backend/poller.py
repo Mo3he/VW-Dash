@@ -43,6 +43,10 @@ _charging_power_samples: list[float] = []
 _prev_climatisation_state: str | None = None
 _prev_locked: bool | None = None
 _prev_plug_connected: bool | None = None
+# Parking-position based trip detection (mirrors VWsFriend PARKING_POSITION mode)
+_prev_parking_time: datetime | None = None   # carCapturedTimestamp from last poll
+_prev_lat: float | None = None               # last known parked latitude
+_prev_lon: float | None = None               # last known parked longitude
 
 # Maximum breadcrumbs per trip before we stop recording (prevents unbounded growth)
 _TRIP_POINT_CAP = 500
@@ -105,7 +109,7 @@ def _emit_event(db: Session, event_type: str, detail: str | None = None) -> None
 def init_state_from_db() -> None:
     """Recover in-memory trip/charging state from the DB after a restart."""
     global _active_trip_id, _trip_start_odometer, _active_charging_session_id, _prev_odometer
-    global _trip_point_count
+    global _trip_point_count, _prev_parking_time, _prev_lat, _prev_lon
 
     db = SessionLocal()
     try:
@@ -148,6 +152,17 @@ def init_state_from_db() -> None:
                     ), {"t": trip_row[0]}).fetchone()
                     if odo_row:
                         _trip_start_odometer = odo_row[0]
+
+        # Seed parking state from the most recent snapshot so the first poll
+        # doesn't trigger a spurious parking_disappeared / parking_appeared event
+        from sqlalchemy import select as _sel
+        last_snap = db.execute(
+            _sel(VehicleSnapshot).order_by(VehicleSnapshot.recorded_at.desc()).limit(1)
+        ).scalars().first()
+        if last_snap:
+            _prev_parking_time = last_snap.parking_time
+            _prev_lat = last_snap.latitude
+            _prev_lon = last_snap.longitude
     except Exception as exc:
         logger.warning("Could not restore state from DB: %s", exc)
     finally:
@@ -449,22 +464,14 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
 
 def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     global _active_trip_id, _prev_odometer, _trip_start_odometer, _trip_point_count
+    global _prev_parking_time, _prev_lat, _prev_lon
 
     odometer = snap.odometer_km
     charging = snap.charging_state == "CHARGING"
     plug_in = snap.plug_connected
-    is_moving = not charging and not plug_in
+    parking_time = snap.parking_time
 
-    # Require the odometer to have actually advanced before opening a new trip.
-    # This prevents a bare unplug (plug_in flips to False while parked) from
-    # immediately creating a spurious trip record.
-    odometer_moved = (
-        odometer is not None
-        and _prev_odometer is not None
-        and odometer > _prev_odometer
-    )
-
-    # Force-close stale open trip before starting a new one
+    # Force-close stale open trip before anything else
     if _active_trip_id is not None:
         trip = db.get(Trip, _active_trip_id)
         if trip and trip.started_at:
@@ -475,23 +482,49 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
                 _active_trip_id = None
                 _trip_start_odometer = None
 
-    if is_moving and odometer_moved and _active_trip_id is None:
-        trip = Trip(
-            started_at=snap.recorded_at,
-            soc_start_pct=snap.soc_pct,
-            start_lat=snap.latitude,
-            start_lon=snap.longitude,
-            outdoor_temp_c=snap.outdoor_temp_c,
-        )
-        db.add(trip)
-        db.flush()
-        _active_trip_id = trip.id
-        _trip_start_odometer = odometer
-        _trip_point_count = 0
-        _emit_event(db, "trip_started", f'{{"soc_pct": {snap.soc_pct}}}')
-        webhook.fire("trip_started", {"trip_id": trip.id, "soc_pct": snap.soc_pct})
+    # Definitive proof the car is not driving (plug in or actively charging)
+    definitely_parked = plug_in or charging
 
-    elif is_moving and _active_trip_id is not None:
+    # PRIMARY signals — mirrors VWsFriend PARKING_POSITION mode:
+    # carCapturedTimestamp going away means the car left its parking spot;
+    # a new/changed timestamp means it arrived at a new parking spot.
+    parking_disappeared = _prev_parking_time is not None and parking_time is None
+    parking_appeared = parking_time is not None and parking_time != _prev_parking_time
+
+    # FALLBACK for vehicles that never populate parking_time: use odometer delta
+    odometer_moved = (
+        odometer is not None
+        and _prev_odometer is not None
+        and odometer > _prev_odometer
+    )
+    # Only use the fallback when parking_time is consistently absent
+    parking_time_available = parking_time is not None or _prev_parking_time is not None
+    should_start_fallback = not parking_time_available and odometer_moved
+
+    # --- START ---
+    if _active_trip_id is None and not definitely_parked:
+        if parking_disappeared or should_start_fallback:
+            # When parking_disappeared, use the last known parked position as the
+            # trip origin (current snap may have no GPS since the car just moved)
+            start_lat = _prev_lat if parking_disappeared else snap.latitude
+            start_lon = _prev_lon if parking_disappeared else snap.longitude
+            trip = Trip(
+                started_at=snap.recorded_at,
+                soc_start_pct=snap.soc_pct,
+                start_lat=start_lat,
+                start_lon=start_lon,
+                outdoor_temp_c=snap.outdoor_temp_c,
+            )
+            db.add(trip)
+            db.flush()
+            _active_trip_id = trip.id
+            _trip_start_odometer = odometer
+            _trip_point_count = 0
+            _emit_event(db, "trip_started", f'{{"soc_pct": {snap.soc_pct}}}')
+            webhook.fire("trip_started", {"trip_id": trip.id, "soc_pct": snap.soc_pct})
+
+    # --- BREADCRUMBS ---
+    elif _active_trip_id is not None and not definitely_parked and not parking_appeared:
         if snap.latitude and snap.longitude and _trip_point_count < _TRIP_POINT_CAP:
             db.add(TripPoint(
                 trip_id=_active_trip_id,
@@ -501,7 +534,9 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             ))
             _trip_point_count += 1
 
-    elif not is_moving and _active_trip_id is not None:
+    # --- END ---
+    # Use separate `if` (not `elif`) so it can fire on the same poll as a breadcrumb
+    if _active_trip_id is not None and (definitely_parked or parking_appeared):
         trip = db.get(Trip, _active_trip_id)
         if trip:
             _close_trip(db, trip, snap)
@@ -509,6 +544,11 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
         _trip_start_odometer = None
 
     _prev_odometer = odometer
+    _prev_parking_time = parking_time
+    # Keep last known good parked position for use as trip start origin
+    if parking_time is not None:
+        _prev_lat = snap.latitude
+        _prev_lon = snap.longitude
 
 
 def _update_misc_events(db: Session, snap: VehicleSnapshot) -> None:
