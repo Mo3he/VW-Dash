@@ -40,6 +40,7 @@ def _run_migrations() -> None:
             "ALTER TABLE charging_sessions ADD COLUMN location_name TEXT",
             "ALTER TABLE trips ADD COLUMN start_address TEXT",
             "ALTER TABLE trips ADD COLUMN end_address TEXT",
+            "ALTER TABLE trips ADD COLUMN range_km_start FLOAT",
             "ALTER TABLE vehicle_snapshots ADD COLUMN car_captured_at DATETIME",
             "ALTER TABLE charging_sessions ADD COLUMN charger_id INTEGER",
         ]:

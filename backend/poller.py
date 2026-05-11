@@ -482,8 +482,21 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
             duration_h = (snap.recorded_at - as_utc(trip.started_at)).total_seconds() / 3600
             if duration_h > 0:
                 trip.avg_speed_kmh = round(dist / duration_h, 1)
+    # Energy used: prefer SoC delta (coarse, whole-%) but fall back to range delta
+    # when SoC didn't drop a full percent (short trips, quantization).
+    kwh: float | None = None
     if trip.soc_start_pct and snap.soc_pct and trip.soc_start_pct > snap.soc_pct:
         kwh = (trip.soc_start_pct - snap.soc_pct) / 100 * settings.battery_capacity_kwh
+    elif (
+        trip.range_km_start is not None
+        and snap.range_km is not None
+        and trip.range_km_start > snap.range_km
+        and settings.epa_rated_range_km > 0
+    ):
+        # Range-delta fallback: 1 km of indicated range ≈ battery_kwh / rated_range kWh
+        range_drop = trip.range_km_start - snap.range_km
+        kwh = range_drop / settings.epa_rated_range_km * settings.battery_capacity_kwh
+    if kwh is not None and kwh > 0:
         trip.kwh_used = round(kwh, 2)
         if dist and dist > 0:
             trip.efficiency_kwh_100km = round(kwh / dist * 100, 1)
@@ -561,6 +574,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             trip = Trip(
                 started_at=snap.recorded_at,
                 soc_start_pct=snap.soc_pct,
+                range_km_start=snap.range_km,
                 start_lat=start_lat,
                 start_lon=start_lon,
                 outdoor_temp_c=snap.outdoor_temp_c,

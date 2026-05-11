@@ -101,6 +101,7 @@ class Trip(Base):
     end_lat: Mapped[Optional[float]] = mapped_column(Float)
     end_lon: Mapped[Optional[float]] = mapped_column(Float)
     outdoor_temp_c: Mapped[Optional[float]] = mapped_column(Float)
+    range_km_start: Mapped[Optional[float]] = mapped_column(Float)
     start_address: Mapped[Optional[str]] = mapped_column(String(256))
     end_address: Mapped[Optional[str]] = mapped_column(String(256))
 
