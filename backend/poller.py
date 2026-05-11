@@ -526,6 +526,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
                 _close_trip(db, trip, snap)
                 _active_trip_id = None
                 _trip_start_odometer = None
+                _parking_time_unchanged_polls = 0
 
     # Definitive proof the car is not driving (plug in or actively charging)
     definitely_parked = plug_in or charging
