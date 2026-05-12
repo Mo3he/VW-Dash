@@ -2,14 +2,24 @@
 import { useEffect, useRef, useState } from "react";
 import type { WsMessage } from "@/lib/types";
 
+function getWsUrl(): string {
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  // In development Next.js dev server doesn't proxy WebSocket upgrades,
+  // so connect directly to the FastAPI backend port.
+  if (process.env.NODE_ENV === "development") {
+    return `${protocol}://${window.location.hostname}:8000/ws`;
+  }
+  // In production the proxy-server.js forwards WS upgrades from port 3000 → 8000.
+  return `${protocol}://${window.location.host}/ws`;
+}
+
 export function useVehicleLive() {
   const [data, setData] = useState<WsMessage | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${protocol}://${window.location.host}/ws`;
+    const url = getWsUrl();
 
     function connect() {
       const ws = new WebSocket(url);

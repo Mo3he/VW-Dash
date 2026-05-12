@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -107,6 +108,9 @@ async def lifespan(app: FastAPI):
     _backfill_avg_power()
     init_state_from_db()
     init_weconnect()
+    # Capture the running event loop so poller threads can broadcast via WS
+    from poller import set_event_loop as _set_poller_loop
+    _set_poller_loop(asyncio.get_event_loop())
     scheduler.add_job(
         poll,
         "interval",

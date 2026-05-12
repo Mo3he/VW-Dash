@@ -26,6 +26,16 @@ import webhook
 
 logger = logging.getLogger(__name__)
 
+# Main asyncio event loop — captured at startup so the poller thread can
+# schedule coroutines onto it with run_coroutine_threadsafe.
+_main_loop: asyncio.AbstractEventLoop | None = None
+
+
+def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _main_loop
+    _main_loop = loop
+
+
 # --- WeConnect instance (created once at startup) ---
 _weconnect: Any = None
 _wc_fail_count: int = 0          # consecutive login failures for backoff
@@ -736,9 +746,12 @@ def _do_poll() -> None:
         "recorded_at": iso_utc(snap.recorded_at),
         "car_captured_at": iso_utc(snap.car_captured_at),
     }
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(broadcast(payload))
-    except RuntimeError:
-        pass
+    if _main_loop is not None and _main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(broadcast(payload), _main_loop)
+    else:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(broadcast(payload))
+        except RuntimeError:
+            pass
