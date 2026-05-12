@@ -26,8 +26,8 @@ export default function ChargingGauge({ value, sub, label, fill, color }: Props)
   const h = radius + stroke;
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+    <div className="flex flex-col items-center gap-1 min-w-0">
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ maxWidth: w, overflow: 'visible' }}>
         {/* Track */}
         <path
           d={`M ${stroke / 2} ${radius} A ${nr} ${nr} 0 0 1 ${w - stroke / 2} ${radius}`}

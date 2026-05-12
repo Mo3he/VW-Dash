@@ -25,8 +25,8 @@ export default function SocGauge({ soc, rangeKm, targetSoc, showLabel }: Props) 
   const filled = (soc / 100) * half;
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      <svg width={radius * 2} height={radius + stroke} viewBox={`0 0 ${radius * 2} ${radius + stroke}`}>
+    <div className="flex flex-col items-center gap-2 min-w-0">
+      <svg width="100%" viewBox={`0 0 ${radius * 2} ${radius + stroke}`} style={{ maxWidth: radius * 2, overflow: 'visible' }}>
         {/* Background arc */}
         <path
           d={`M ${stroke / 2} ${radius} A ${normalizedRadius} ${normalizedRadius} 0 0 1 ${radius * 2 - stroke / 2} ${radius}`}

@@ -67,8 +67,9 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
         <span className="text-xs text-gray-500 uppercase tracking-wider">Consumption &amp; Range extrapolated to 100% SoC</span>
       </div>
 
+      <div style={{ overflow: "visible" }}>
       <ResponsiveContainer width="100%" height={180}>
-        <ComposedChart data={points} margin={{ top: 4, right: 32, left: -16, bottom: 0 }}>
+        <ComposedChart data={points} margin={{ top: 4, right: 0, left: -16, bottom: 0 }}>
           <XAxis
             dataKey="date"
             tick={{ fill: "#6b7280", fontSize: 10 }}
@@ -87,7 +88,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
             tickFormatter={(v) => `${v}`}
             width={48}
           />
-          {/* Right Y: consumption */}
+          {/* Right Y: consumption — negative right margin above cancels the axis width so lines reach the edge */}
           <YAxis
             yAxisId="cons"
             orientation="right"
@@ -96,7 +97,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
             axisLine={false}
             domain={["auto", "auto"]}
             tickFormatter={(v) => `${v}`}
-            width={40}
+            width={32}
           />
           <ReferenceLine
             yAxisId="range"
@@ -137,6 +138,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
           />
         </ComposedChart>
       </ResponsiveContainer>
+      </div>
 
       {/* Stats table */}
       <div className="mt-3 overflow-x-auto">

@@ -176,8 +176,8 @@ export default function DashboardClient({ initial: initialProp, history: history
       </div>
 
       {soc != null ? (
-        <div className="rounded-2xl bg-[#161b27] border border-white/5 p-6">
-          <div className="flex items-end justify-around gap-4">
+        <div className="rounded-2xl bg-[#161b27] border border-white/5 px-2 py-4 sm:p-6 overflow-visible">
+          <div className="flex items-end justify-around gap-1 sm:gap-4">
               {/* Charge power gauge — 0–150 kW range covers AC & DC */}
               <ChargingGauge
                 label="Charge power"
