@@ -209,26 +209,25 @@ def vampire_drain(
 @router.post("/climate")
 def control_climate(action: Literal["start", "stop"] = Query(...)):
     """Send a start/stop climatisation command to the vehicle."""
+    from weconnect.elements.control_operation import ControlOperation
     from poller import get_weconnect_vehicle
     _wc, vehicle = get_weconnect_vehicle()
     if vehicle is None:
         raise HTTPException(status_code=503, detail="Vehicle not connected to WeConnect")
     try:
-        # Use try/except dict access matching the poller's _domain() pattern
-        try:
-            clim_status = vehicle.domains["climatisation"]["climatisationStatus"]
-        except (KeyError, TypeError):
-            raise HTTPException(status_code=503, detail="Climatisation domain not available")
+        controls = getattr(vehicle, "controls", None)
+        clim_control = getattr(controls, "climatizationControl", None) if controls else None
+        if clim_control is None:
+            raise HTTPException(status_code=503, detail="Climatisation control not available for this vehicle")
 
-        target_state = "COOLING" if action == "start" else "OFF"
+        operation = ControlOperation.START if action == "start" else ControlOperation.STOP
 
-        # weconnect 0.60.x: setting .value on an Attribute triggers the CarAPI PUT
         try:
-            clim_status.climatisationState.value = target_state
+            clim_control.value = operation
         except Exception as inner:
             raise HTTPException(status_code=500, detail=f"Climate command failed: {inner}")
 
-        return {"status": "command_sent", "action": action, "target_state": target_state}
+        return {"status": "command_sent", "action": action}
     except HTTPException:
         raise
     except Exception as exc:
