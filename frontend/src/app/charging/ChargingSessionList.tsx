@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import clsx from "clsx";
 import { useTimezone, useHour12, useDistanceUnit } from "@/app/SettingsProvider";
 import { fmtDateTime, fmtDist } from "@/lib/format";
+import LocationSearch from "@/components/LocationSearch";
 
 interface Props {
   sessions: ChargingSession[];
@@ -28,6 +29,8 @@ interface EditState {
   peak_power_kw: string;
   charger_id: number | null;
   location_name: string;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 function formatDuration(min: number | null) {
@@ -50,6 +53,8 @@ function sessionToEditState(s: ChargingSession): EditState {
     peak_power_kw: s.peak_power_kw?.toString() ?? "",
     charger_id: s.charger_id,
     location_name: s.location_name ?? "",
+    latitude: s.latitude,
+    longitude: s.longitude,
   };
 }
 
@@ -94,6 +99,8 @@ export default function ChargingSessionList({ sessions, total, chargers, onSessi
       body.charger_id = editState.charger_id;
       if (editState.charger_id == null) {
         body.location_name = editState.location_name || null;
+        if (editState.latitude != null) body.latitude = editState.latitude;
+        if (editState.longitude != null) body.longitude = editState.longitude;
       }
 
       const updated = await api.charging.updateSession(s.id, body as Partial<ChargingSession>);
@@ -313,28 +320,35 @@ export default function ChargingSessionList({ sessions, total, chargers, onSessi
                     </label>
                   )}
                   <label className="flex flex-col gap-1">
-                    <span className="text-xs text-gray-500">Location name</span>
-                    <input
-                      type="text"
-                      value={editState.location_name}
-                      disabled={editState.charger_id != null}
-                      onChange={(e) => setEditState({ ...editState, location_name: e.target.value })}
-                      placeholder="e.g. Home, Work, Tesla Supercharger"
-                      className={clsx(
-                        "rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white w-full",
-                        editState.charger_id != null && "opacity-50 cursor-not-allowed"
-                      )}
-                    />
+                      <span className="text-xs text-gray-500">Location</span>
+                      <LocationSearch
+                        value={editState.location_name}
+                        disabled={editState.charger_id != null}
+                        placeholder="Search address…"
+                        onSelect={(name, lat, lon) => setEditState({
+                          ...editState,
+                          location_name: name,
+                          latitude: lat ?? editState.latitude,
+                          longitude: lon ?? editState.longitude,
+                        })}
+                        className={clsx(
+                          "rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white w-full",
+                          editState.charger_id != null && "opacity-50 cursor-not-allowed"
+                        )}
+                      />
                   </label>
-                  {editState.charger_id == null && editState.location_name && s.latitude && s.longitude && (
+                  {editState.charger_id == null && editState.location_name && (editState.latitude != null || s.latitude) && (editState.longitude != null || s.longitude) && (
                     <button
                       type="button"
                       onClick={async () => {
+                        const lat = editState.latitude ?? s.latitude;
+                        const lon = editState.longitude ?? s.longitude;
+                        if (lat == null || lon == null) return;
                         try {
                           const created = await api.chargers.create({
                             name: editState.location_name,
-                            latitude: s.latitude!,
-                            longitude: s.longitude!,
+                            latitude: lat,
+                            longitude: lon,
                           });
                           onChargerCreated?.(created);
                           setEditState({ ...editState, charger_id: created.id });

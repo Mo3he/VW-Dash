@@ -14,6 +14,7 @@ import urllib.request
 logger = logging.getLogger(__name__)
 
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
+_NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 _USER_AGENT = "VW-Dash/1.0 (self-hosted EV dashboard; https://github.com/Mo3he/VW-Dash)"
 _last_request_at: float = 0.0
 
@@ -83,3 +84,49 @@ def reverse_geocode(lat: float, lon: float) -> str | None:
     except Exception as exc:
         logger.warning("Geocoding failed for (%.5f, %.5f): %s", lat, lon, exc)
         return None
+
+
+def forward_search(q: str, limit: int = 5) -> list[dict]:
+    """Forward geocoding: returns up to `limit` location candidates for the query string."""
+    global _last_request_at
+
+    if not q or len(q.strip()) < 3:
+        return []
+
+    # Nominatim ToS: max 1 req/sec (shared rate-limit counter with reverse_geocode)
+    elapsed = time.monotonic() - _last_request_at
+    if elapsed < 1.1:
+        time.sleep(1.1 - elapsed)
+
+    try:
+        params = urllib.parse.urlencode({
+            "q": q,
+            "format": "json",
+            "limit": limit,
+            "addressdetails": 0,
+        })
+        req = urllib.request.Request(
+            f"{_NOMINATIM_SEARCH_URL}?{params}",
+            headers={"User-Agent": _USER_AGENT},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        _last_request_at = time.monotonic()
+        return [
+            {
+                "display_name": r.get("display_name", ""),
+                "lat": float(r["lat"]),
+                "lon": float(r["lon"]),
+            }
+            for r in data
+        ]
+    except urllib.error.HTTPError as exc:
+        _last_request_at = time.monotonic()
+        if exc.code == 429:
+            logger.warning("Nominatim rate-limited (429) during forward search")
+        else:
+            logger.warning("Forward geocode failed for %r: %s", q, exc)
+        return []
+    except Exception as exc:
+        logger.warning("Forward geocode failed for %r: %s", q, exc)
+        return []

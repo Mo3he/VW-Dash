@@ -9,6 +9,7 @@ import ChargeMap from "@/components/ChargeMap";
 import ChargingSessionList from "./ChargingSessionList";
 import RangeHealthCard from "@/components/BatteryHealthCard";
 import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
+import LocationSearch from "@/components/LocationSearch";
 import { useDistanceUnit } from "@/app/SettingsProvider";
 
 const PAGE_SIZE = 20;
@@ -21,6 +22,9 @@ interface AddSessionForm {
   kwh_added: string;
   charge_type: string;
   location_name: string;
+  charger_id: number | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 function localDatetimeToISO(value: string): string {
@@ -39,7 +43,7 @@ export default function ChargingPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState<AddSessionForm>({ started_at: "", ended_at: "", soc_start_pct: "", soc_end_pct: "", kwh_added: "", charge_type: "AC", location_name: "" });
+  const [addForm, setAddForm] = useState<AddSessionForm>({ started_at: "", ended_at: "", soc_start_pct: "", soc_end_pct: "", kwh_added: "", charge_type: "AC", location_name: "", charger_id: null, latitude: null, longitude: null });
   const [addError, setAddError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
 
@@ -97,11 +101,14 @@ export default function ChargingPage() {
       if (addForm.soc_end_pct) body.soc_end_pct = parseFloat(addForm.soc_end_pct);
       if (addForm.kwh_added) body.kwh_added = parseFloat(addForm.kwh_added);
       if (addForm.location_name.trim()) body.location_name = addForm.location_name.trim();
+      if (addForm.charger_id != null) body.charger_id = addForm.charger_id;
+      if (addForm.latitude != null) body.latitude = addForm.latitude;
+      if (addForm.longitude != null) body.longitude = addForm.longitude;
       const created = await api.charging.createSession(body);
       setSessions((prev) => [created, ...prev]);
       setTotal((n) => n + 1);
       setShowAddModal(false);
-      setAddForm({ started_at: "", ended_at: "", soc_start_pct: "", soc_end_pct: "", kwh_added: "", charge_type: "AC", location_name: "" });
+      setAddForm({ started_at: "", ended_at: "", soc_start_pct: "", soc_end_pct: "", kwh_added: "", charge_type: "AC", location_name: "", charger_id: null, latitude: null, longitude: null });
       loadStats();
     } catch (err: unknown) {
       setAddError(err instanceof Error ? err.message : "Failed to save session");
@@ -342,13 +349,44 @@ export default function ChargingPage() {
                   </select>
                 </div>
               </div>
+              {chargers.length > 0 && (
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Saved charger (optional)</label>
+                  <select
+                    value={addForm.charger_id?.toString() ?? ""}
+                    onChange={(e) => {
+                      const id = e.target.value ? parseInt(e.target.value) : null;
+                      const charger = chargers.find((c) => c.id === id);
+                      setAddForm((f) => ({
+                        ...f,
+                        charger_id: id,
+                        location_name: charger ? charger.name : f.location_name,
+                        latitude: charger ? charger.latitude : f.latitude,
+                        longitude: charger ? charger.longitude : f.longitude,
+                      }));
+                    }}
+                    className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                  >
+                    <option value="">— No saved charger —</option>
+                    {chargers.map((c) => (
+                      <option key={c.id} value={c.id.toString()}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-gray-400 block mb-1">Location (optional)</label>
-                <input
-                  type="text"
+                <LocationSearch
                   value={addForm.location_name}
-                  onChange={(e) => setAddForm((f) => ({ ...f, location_name: e.target.value }))}
-                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                  disabled={addForm.charger_id != null}
+                  placeholder="Search address…"
+                  onSelect={(name, lat, lon) => setAddForm((f) => ({
+                    ...f,
+                    location_name: name,
+                    latitude: lat ?? null,
+                    longitude: lon ?? null,
+                  }))}
+                  className={`w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50${addForm.charger_id != null ? " opacity-50 cursor-not-allowed" : ""}`}
                 />
               </div>
               {addError && <p className="text-xs text-red-400">{addError}</p>}

@@ -9,6 +9,7 @@ import TempEfficiency from "./TempEfficiency";
 import EfficiencyChart from "./EfficiencyChart";
 import PeriodSelector, { DateRange, defaultRange } from "@/components/PeriodSelector";
 import { authHeaders } from "@/lib/auth";
+import LocationSearch from "@/components/LocationSearch";
 import { useDistanceUnit } from "@/app/SettingsProvider";
 
 const PAGE_SIZE = 20;
@@ -243,6 +244,9 @@ export default function TripsPage() {
           setTrips((prev) => prev.filter((t) => t.id !== id));
           setTotal((n) => n - 1);
         }}
+        onUpdate={(updated) => {
+          setTrips((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+        }}
       />
 
       {trips.length < total && (
@@ -326,19 +330,19 @@ export default function TripsPage() {
               </div>
               <div>
                 <label className="text-xs text-gray-400 block mb-1">Start location (optional)</label>
-                <input
-                  type="text"
+                <LocationSearch
                   value={addForm.start_address}
-                  onChange={(e) => setAddForm((f) => ({ ...f, start_address: e.target.value }))}
+                  placeholder="Search start address…"
+                  onSelect={(name) => setAddForm((f) => ({ ...f, start_address: name }))}
                   className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
                 />
               </div>
               <div>
                 <label className="text-xs text-gray-400 block mb-1">End location (optional)</label>
-                <input
-                  type="text"
+                <LocationSearch
                   value={addForm.end_address}
-                  onChange={(e) => setAddForm((f) => ({ ...f, end_address: e.target.value }))}
+                  placeholder="Search end address…"
+                  onSelect={(name) => setAddForm((f) => ({ ...f, end_address: name }))}
                   className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
                 />
               </div>

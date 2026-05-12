@@ -118,6 +118,7 @@ export const api = {
       started_at: string; ended_at: string;
       soc_start_pct?: number; soc_end_pct?: number;
       kwh_added?: number; charge_type?: string; location_name?: string;
+      charger_id?: number;
     }) => post<ChargingSession>("/charging/sessions", body),
   },
   trips: {
@@ -132,6 +133,8 @@ export const api = {
     journeys: (start: string, end: string) =>
       get<Journey[]>(`/trips/journeys?start_date=${start}&end_date=${end}`),
     delete: (id: number) => del(`/trips/${id}`),
+    update: (id: number, body: { start_address?: string | null; end_address?: string | null; distance_km?: number; soc_start_pct?: number; soc_end_pct?: number }) =>
+      patch<Trip>(`/trips/${id}`, body),
     create: (body: {
       started_at: string; ended_at: string; distance_km: number;
       soc_start_pct?: number; soc_end_pct?: number;
@@ -152,5 +155,11 @@ export const api = {
   },
   stats: {
     monthly: () => get<MonthlyStats[]>("/stats/monthly"),
+  },
+  geocoder: {
+    search: (q: string) =>
+      get<{ display_name: string; lat: number; lon: number }[]>(
+        `/geocoder/search?q=${encodeURIComponent(q)}`
+      ),
   },
 };

@@ -28,6 +28,14 @@ class TripCreate(BaseModel):
     end_address: Optional[str] = None
 
 
+class TripUpdate(BaseModel):
+    start_address: Optional[str] = None
+    end_address: Optional[str] = None
+    distance_km: Optional[float] = None
+    soc_start_pct: Optional[float] = None
+    soc_end_pct: Optional[float] = None
+
+
 @router.post("", status_code=201)
 def create_trip(body: TripCreate, db: Session = Depends(get_db)):
     started = datetime.fromisoformat(body.started_at.replace("Z", "+00:00"))
@@ -317,6 +325,32 @@ def export_trips_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=trips.csv"},
     )
+
+
+@router.patch("/{trip_id}")
+def update_trip(trip_id: int, body: TripUpdate, db: Session = Depends(get_db)):
+    trip = db.get(Trip, trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if "start_address" in body.model_fields_set:
+        trip.start_address = body.start_address or None
+    if "end_address" in body.model_fields_set:
+        trip.end_address = body.end_address or None
+    if body.distance_km is not None:
+        trip.distance_km = round(body.distance_km, 2)
+        trip.distance_miles = round(body.distance_km * 0.621371, 2)
+    if body.soc_start_pct is not None:
+        trip.soc_start_pct = body.soc_start_pct
+    if body.soc_end_pct is not None:
+        trip.soc_end_pct = body.soc_end_pct
+    # Recompute efficiency if we have enough data
+    if trip.distance_km and trip.soc_start_pct and trip.soc_end_pct and trip.soc_start_pct > trip.soc_end_pct:
+        kwh = round((trip.soc_start_pct - trip.soc_end_pct) / 100 * settings.battery_capacity_kwh, 2)
+        trip.kwh_used = kwh
+        trip.efficiency_kwh_100km = round(kwh / trip.distance_km * 100, 1)
+    db.commit()
+    db.refresh(trip)
+    return _trip_to_dict(trip)
 
 
 @router.delete("/{trip_id}", status_code=204)

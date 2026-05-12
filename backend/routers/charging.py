@@ -41,6 +41,9 @@ class SessionCreate(BaseModel):
     kwh_added: Optional[float] = None
     charge_type: Optional[str] = None
     location_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    charger_id: Optional[int] = None
 
 router = APIRouter(prefix="/api/charging", tags=["charging"])
 
@@ -79,9 +82,17 @@ def create_session(body: SessionCreate, db: Session = Depends(get_db)):
         cost_per_kwh=cost_per_kwh,
         charge_type=body.charge_type or "AC",
         location_name=body.location_name or None,
+        latitude=body.latitude,
+        longitude=body.longitude,
         range_added_km=range_added_km,
     )
     db.add(session)
+    db.flush()
+    if body.charger_id is not None:
+        charger = db.get(Charger, body.charger_id)
+        if charger:
+            session.charger_id = charger.id
+            session.location_name = charger.name
     db.commit()
     db.refresh(session)
     return _session_to_dict(session)
