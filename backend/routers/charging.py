@@ -85,6 +85,8 @@ def create_session(body: SessionCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(session)
     return _session_to_dict(session)
+
+@router.get("/sessions")
 def list_sessions(
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),

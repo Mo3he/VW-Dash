@@ -139,8 +139,7 @@ function UsersManager({ inputClass }: { inputClass: string }) {
 
   if (!adminView || loading) return null;
 
-  async function addUser(e: React.FormEvent) {
-    e.preventDefault();
+  async function addUser() {
     setError(null);
     const res = await fetch("/api/auth/users", {
       method: "POST",
@@ -225,8 +224,7 @@ function UsersManager({ inputClass }: { inputClass: string }) {
               </div>
             </div>
             {changingPwFor === u.id && (
-              <form
-                onSubmit={(e) => { e.preventDefault(); changePassword(u.id); }}
+              <div
                 className="flex items-center gap-2 mt-0.5"
               >
                 <div className="relative flex-1">
@@ -248,13 +246,14 @@ function UsersManager({ inputClass }: { inputClass: string }) {
                   </button>
                 </div>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() => changePassword(u.id)}
                   disabled={!newPw}
                   className="text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-colors disabled:opacity-40"
                 >
                   Save
                 </button>
-              </form>
+              </div>
             )}
             {changingPwFor === u.id && pwError && (
               <div className="text-xs text-red-400">{pwError}</div>
@@ -265,7 +264,7 @@ function UsersManager({ inputClass }: { inputClass: string }) {
 
       <div className="flex flex-col gap-2 border-t border-white/5 pt-3">
         <span className="text-xs text-gray-500 uppercase tracking-wider">Add user</span>
-        <form onSubmit={addUser} className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <input
             type="text"
             placeholder="Username"
@@ -302,13 +301,14 @@ function UsersManager({ inputClass }: { inputClass: string }) {
             <span className="text-xs text-gray-400">Admin</span>
           </label>
           <button
-            type="submit"
+            type="button"
+            onClick={addUser}
             disabled={!newUsername.trim() || !newPassword}
             className="flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-white font-medium py-2.5 text-sm hover:bg-white/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Add user
           </button>
-        </form>
+        </div>
       </div>
 
       {error && <div className="text-sm text-red-400">{error}</div>}

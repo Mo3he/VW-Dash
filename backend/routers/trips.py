@@ -24,6 +24,8 @@ class TripCreate(BaseModel):
     distance_km: float
     soc_start_pct: Optional[float] = None
     soc_end_pct: Optional[float] = None
+    start_address: Optional[str] = None
+    end_address: Optional[str] = None
 
 
 @router.post("", status_code=201)
@@ -54,6 +56,8 @@ def create_trip(body: TripCreate, db: Session = Depends(get_db)):
         kwh_used=kwh_used,
         efficiency_kwh_100km=efficiency,
         avg_speed_kmh=round(distance_km / duration_h, 1) if duration_h > 0 else None,
+        start_address=body.start_address or None,
+        end_address=body.end_address or None,
     )
     db.add(trip)
     db.commit()

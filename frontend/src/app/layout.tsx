@@ -41,7 +41,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <AuthGate>
             <SettingsProvider timezone={timezone} vehicleName={vehicleName} time24h={time24h} distanceUnit={distanceUnit}>
               <Nav />
-              <main className="max-w-4xl mx-auto px-4 pb-24 pt-4">{children}</main>
+              <main className="max-w-screen-2xl mx-auto px-4 pb-24 pt-4">{children}</main>
             </SettingsProvider>
           </AuthGate>
         </ThemeProvider>

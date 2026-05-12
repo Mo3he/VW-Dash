@@ -19,6 +19,8 @@ interface AddTripForm {
   distance_km: string;
   soc_start_pct: string;
   soc_end_pct: string;
+  start_address: string;
+  end_address: string;
 }
 
 function toLocalDatetimeValue(isoOrEmpty: string): string {
@@ -43,7 +45,7 @@ export default function TripsPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState<AddTripForm>({ started_at: "", ended_at: "", distance_km: "", soc_start_pct: "", soc_end_pct: "" });
+  const [addForm, setAddForm] = useState<AddTripForm>({ started_at: "", ended_at: "", distance_km: "", soc_start_pct: "", soc_end_pct: "", start_address: "", end_address: "" });
   const [addError, setAddError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
 
@@ -97,11 +99,13 @@ export default function TripsPage() {
       };
       if (addForm.soc_start_pct) body.soc_start_pct = parseFloat(addForm.soc_start_pct);
       if (addForm.soc_end_pct) body.soc_end_pct = parseFloat(addForm.soc_end_pct);
+      if (addForm.start_address.trim()) body.start_address = addForm.start_address.trim();
+      if (addForm.end_address.trim()) body.end_address = addForm.end_address.trim();
       const created = await api.trips.create(body);
       setTrips((prev) => [created, ...prev]);
       setTotal((n) => n + 1);
       setShowAddModal(false);
-      setAddForm({ started_at: "", ended_at: "", distance_km: "", soc_start_pct: "", soc_end_pct: "" });
+      setAddForm({ started_at: "", ended_at: "", distance_km: "", soc_start_pct: "", soc_end_pct: "", start_address: "", end_address: "" });
       loadStats();
     } catch (err: unknown) {
       setAddError(err instanceof Error ? err.message : "Failed to save trip");
@@ -319,6 +323,24 @@ export default function TripsPage() {
                     className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Start location (optional)</label>
+                <input
+                  type="text"
+                  value={addForm.start_address}
+                  onChange={(e) => setAddForm((f) => ({ ...f, start_address: e.target.value }))}
+                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">End location (optional)</label>
+                <input
+                  type="text"
+                  value={addForm.end_address}
+                  onChange={(e) => setAddForm((f) => ({ ...f, end_address: e.target.value }))}
+                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                />
               </div>
               {addError && <p className="text-xs text-red-400">{addError}</p>}
               <button

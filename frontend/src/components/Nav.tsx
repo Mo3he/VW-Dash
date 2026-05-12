@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BatteryCharging, Car, MapPin, Settings, Route, LogOut, Sun, Moon, Github, Coffee } from "lucide-react";
+import { BatteryCharging, Car, MapPin, Settings, Route, LogOut, Sun, Moon, Github, Coffee, BarChart2 } from "lucide-react";
 import clsx from "clsx";
 import { useVehicleName } from "@/app/SettingsProvider";
 import { authHeaders, clearAuth, getUsername } from "@/lib/auth";
@@ -13,6 +13,7 @@ const links = [
   { href: "/charging", label: "Charging", Icon: BatteryCharging },
   { href: "/trips", label: "Trips", Icon: MapPin },
   { href: "/journeys", label: "Journeys", Icon: Route },
+  { href: "/stats", label: "Statistics", Icon: BarChart2 },
   { href: "/settings", label: "Settings", Icon: Settings },
 ];
 

@@ -10,6 +10,7 @@ import type {
   Trip,
   TripStats,
   VehicleSnapshot,
+  MonthlyStats,
 } from "./types";
 
 import { authHeaders } from "./auth";
@@ -134,6 +135,7 @@ export const api = {
     create: (body: {
       started_at: string; ended_at: string; distance_km: number;
       soc_start_pct?: number; soc_end_pct?: number;
+      start_address?: string; end_address?: string;
     }) => post<Trip>("/trips", body),
   },
   chargers: {
@@ -147,5 +149,8 @@ export const api = {
   events: {
     list: (limit = 50, days = 3) =>
       get<EventItem[]>(`/events?limit=${limit}&days=${days}`),
+  },
+  stats: {
+    monthly: () => get<MonthlyStats[]>("/stats/monthly"),
   },
 };

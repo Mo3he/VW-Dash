@@ -18,7 +18,7 @@ from database import Base, engine
 from sqlalchemy import text
 from poller import init_weconnect, init_state_from_db, poll
 from jose import jwt as _jwt, JWTError
-from routers import charging, trips, vehicle, settings_router, import_router, events_router, chargers as chargers_router, auth as auth_router
+from routers import charging, trips, vehicle, settings_router, import_router, events_router, chargers as chargers_router, auth as auth_router, stats as stats_router
 from ws import connect, disconnect
 
 logging.basicConfig(level=logging.INFO)
@@ -127,6 +127,7 @@ app.include_router(trips.router)
 app.include_router(settings_router.router)
 app.include_router(import_router.router)
 app.include_router(events_router.router)
+app.include_router(stats_router.router)
 
 
 @app.websocket("/ws")

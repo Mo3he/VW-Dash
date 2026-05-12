@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import {
-  Lock, Unlock, Plug, Thermometer, Zap, Wind, Gauge, RefreshCw,
+  Lock, Unlock, Plug, Thermometer, Wind, Gauge, RefreshCw,
 } from "lucide-react";
 import SocGauge from "@/components/SocGauge";
 import ChargingGauge from "@/components/ChargingGauge";
@@ -163,13 +163,12 @@ export default function DashboardClient({ initial: initialProp, history: history
 
       {soc != null ? (
         <div className="rounded-2xl bg-[#161b27] border border-white/5 p-6">
-          {isCharging ? (
-            <div className="flex items-end justify-around gap-4">
+          <div className="flex items-end justify-around gap-4">
               {/* Charge power gauge — 0–150 kW range covers AC & DC */}
               <ChargingGauge
                 label="Charge power"
-                value={chargePower != null ? `${chargePower.toFixed(1)} kW` : "—"}
-                fill={chargePower != null ? chargePower / 150 : 0}
+                value={isCharging && chargePower != null ? `${chargePower.toFixed(1)} kW` : "—"}
+                fill={isCharging && chargePower != null ? chargePower / 150 : 0}
                 color="#facc15"
               />
               {/* Centre: SoC (full size) */}
@@ -178,14 +177,14 @@ export default function DashboardClient({ initial: initialProp, history: history
               <ChargingGauge
                 label="Remaining"
                 value={
-                  remainingMin != null
+                  isCharging && remainingMin != null
                     ? remainingMin < 60
                       ? `${remainingMin} min`
                       : `${Math.floor(remainingMin / 60)}h ${remainingMin % 60}m`
                     : "—"
                 }
                 sub={
-                  remainingMin != null
+                  isCharging && remainingMin != null
                     ? (() => {
                         const finish = new Date(Date.now() + remainingMin * 60000);
                         return finish.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -193,20 +192,15 @@ export default function DashboardClient({ initial: initialProp, history: history
                     : null
                 }
                 fill={
-                  remainingMin != null && targetSoc != null && soc != null
+                  isCharging && remainingMin != null && targetSoc != null && soc != null
                     ? 1 - Math.min(1, remainingMin / Math.max(1, ((targetSoc - soc) / 100) * 600))
-                    : remainingMin != null
+                    : isCharging && remainingMin != null
                     ? 1 - Math.min(1, remainingMin / 600)
                     : 0
                 }
                 color="#00B0F0"
               />
             </div>
-          ) : (
-            <div className="flex justify-center">
-              <SocGauge soc={soc} rangeKm={rangeKm} targetSoc={targetSoc} />
-            </div>
-          )}
         </div>
       ) : (
         <div className="rounded-2xl bg-[#161b27] border border-white/5 p-6 text-center text-gray-500">
@@ -242,30 +236,7 @@ export default function DashboardClient({ initial: initialProp, history: history
           }
         />
 
-        <StatusCard
-          label="Charge power"
-          value={
-            isCharging && chargePower != null ? (
-              <span className="flex items-center gap-1.5">
-                <Zap size={16} className="text-yellow-400" />
-                {chargePower.toFixed(1)} kW
-              </span>
-            ) : (
-              <span className="text-[var(--color-text-muted,#9ca3af)]">--</span>
-            )
-          }
-          sub={
-            isCharging
-              ? remainingMin
-                ? `~${remainingMin} min remaining`
-                : chargeRate != null
-                ? distanceUnit === "miles"
-                  ? `+${(chargeRate * 0.621371).toFixed(0)} mph`
-                  : `+${chargeRate.toFixed(0)} km/h`
-                : undefined
-              : undefined
-          }
-        />
+
 
         {isClimateActive && activeClimateLabel ? (
           <StatusCard

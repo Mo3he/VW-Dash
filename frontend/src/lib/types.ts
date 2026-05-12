@@ -155,6 +155,23 @@ export interface EventItem {
   detail: Record<string, unknown> | null;
 }
 
+export interface MonthlyStats {
+  period: string;
+  period_key: string;
+  drive_count: number;
+  time_driven_min: number;
+  distance_km: number;
+  median_distance_km: number | null;
+  charge_count: number;
+  time_charging_min: number;
+  avg_charge_duration_min: number | null;
+  energy_charged_kwh: number;
+  avg_kwh_per_charge: number | null;
+  total_cost: number;
+  currency_symbol: string;
+  currency_after: boolean;
+}
+
 export interface WsMessage {
   type: "snapshot";
   soc_pct: number | null;
