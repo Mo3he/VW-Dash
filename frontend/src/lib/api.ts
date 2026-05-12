@@ -118,7 +118,7 @@ export const api = {
       started_at: string; ended_at: string;
       soc_start_pct?: number; soc_end_pct?: number;
       kwh_added?: number; charge_type?: string; location_name?: string;
-      charger_id?: number;
+      charger_id?: number; latitude?: number; longitude?: number;
     }) => post<ChargingSession>("/charging/sessions", body),
   },
   trips: {
