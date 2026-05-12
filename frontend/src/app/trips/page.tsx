@@ -144,7 +144,7 @@ export default function TripsPage() {
           >
             <Plus size={16} />
           </button>
-          <aa
+          <a
             href={`/api/trips/export.csv?start_date=${range.start}&end_date=${range.end}`}
             onClick={async (e) => {
               const token = authHeaders().Authorization;
