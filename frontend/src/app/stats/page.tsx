@@ -34,13 +34,13 @@ export default function StatsPage() {
   }, []);
 
   const th =
-    "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 whitespace-nowrap";
-  const td = "px-3 py-2.5 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap";
+    "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-white/40 whitespace-nowrap";
+  const td = "px-3 py-2.5 text-sm text-white whitespace-nowrap";
   const tdNum = `${td} tabular-nums text-right`;
 
   return (
     <main className="p-4 md:p-6 max-w-full mx-auto">
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+      <h1 className="text-xl font-semibold text-white mb-4">
         Statistics <span className="text-gray-500 font-normal text-base">(per month)</span>
       </h1>
 
@@ -49,10 +49,10 @@ export default function StatsPage() {
       ) : !rows || rows.length === 0 ? (
         <div className="text-gray-500 text-sm">No data yet.</div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-black/10 dark:border-white/5">
-          <table className="w-full border-collapse bg-white dark:bg-[#161b27]">
+        <div className="overflow-x-auto rounded-2xl border border-white/5">
+          <table className="w-full border-collapse bg-[#161b27]">
             <thead>
-              <tr className="border-b border-black/10 dark:border-white/5">
+              <tr className="border-b border-white/5">
                 <th className={th}>Period</th>
                 <th className={`${th} text-right`}># Drives</th>
                 <th className={`${th} text-right`}>Time driven</th>
@@ -84,11 +84,11 @@ export default function StatsPage() {
                     key={row.period_key}
                     className={
                       i % 2 === 0
-                        ? "border-b border-black/[0.04] dark:border-white/[0.03]"
-                        : "bg-black/[0.02] dark:bg-white/[0.015] border-b border-black/[0.04] dark:border-white/[0.03]"
+                        ? "border-b border-white/5"
+                        : "bg-white/5 border-b border-white/5"
                     }
                   >
-                    <td className={`${td} font-medium text-gray-900 dark:text-white`}>{row.period}</td>
+                    <td className={`${td} font-medium`}>{row.period}</td>
                     <td className={tdNum}>{row.drive_count}</td>
                     <td className={tdNum}>{fmtDuration(row.time_driven_min)}</td>
                     <td className={tdNum}>{dist}</td>
