@@ -79,8 +79,11 @@ export default function DashboardClient({ initial: initialProp, history: history
     setPolling(true);
     try {
       await api.vehicle.poll();
+      // Re-fetch latest snapshot in case WS delivery is slow/disconnected
+      const latest = await api.vehicle.latest().catch(() => null);
+      if (latest) setInitial(latest);
     } catch {
-      // ignore — WS will broadcast the result regardless
+      // ignore
     } finally {
       setPolling(false);
     }
@@ -119,7 +122,18 @@ export default function DashboardClient({ initial: initialProp, history: history
     setClimateMsg(null);
     try {
       await api.vehicle.climate(action);
-      setClimateMsg(action === "start" ? "Climate started — updating next poll" : "Climate stopped — updating next poll");
+      setClimateMsg(action === "start" ? "Climate started — refreshing in 30s…" : "Climate stopped — refreshing in 30s…");
+      // Trigger a poll after 30 s so the UI reflects the new climate state
+      setTimeout(async () => {
+        try {
+          await api.vehicle.poll();
+          const latest = await api.vehicle.latest().catch(() => null);
+          if (latest) setInitial(latest);
+          setClimateMsg(null);
+        } catch {
+          setClimateMsg(null);
+        }
+      }, 30_000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setClimateMsg(`Error: ${msg}`);
@@ -306,9 +320,11 @@ export default function DashboardClient({ initial: initialProp, history: history
           <button
             onClick={() => handleClimate("stop")}
             disabled={climateLoading || !isClimateActive}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
-              bg-gray-500/10 text-gray-300 border border-white/10
-              hover:bg-gray-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
+              disabled:opacity-40 disabled:cursor-not-allowed transition
+              ${isClimateActive
+                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20"
+                : "bg-gray-500/10 text-gray-300 border border-white/10 hover:bg-gray-500/20"}`}
           >
             Stop AC
           </button>

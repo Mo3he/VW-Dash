@@ -10,10 +10,18 @@ interface DrainData {
 
 export default function VampireDrainCard() {
   const [data, setData] = useState<DrainData | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.vehicle.vampireDrain(30).then(setData).catch(() => {});
+    api.vehicle.vampireDrain(30).then(setData).catch((e: Error) => setError(e.message));
   }, []);
+
+  if (error) return (
+    <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4">
+      <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Vampire drain</div>
+      <div className="text-xs text-red-400">{error}</div>
+    </div>
+  );
 
   if (!data || data.avg_drain_pct_per_h == null) return null;
 
