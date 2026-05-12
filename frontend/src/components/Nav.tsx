@@ -45,7 +45,7 @@ export default function Nav() {
   return (
     <>
       {/* Top bar */}
-      <header className="sticky top-0 z-10 bg-[#0f1117]/90 backdrop-blur-md border-b border-white/5 px-5 h-12 flex items-center gap-2.5">
+      <header className="sticky top-0 z-50 bg-[#0f1117]/90 backdrop-blur-md border-b border-white/5 px-5 h-12 flex items-center gap-2.5">
         <span className="text-white font-semibold text-sm tracking-tight">VW Dash</span>
         {vehicleName && (
           <>
@@ -96,7 +96,7 @@ export default function Nav() {
       </header>
 
       {/* Bottom tab bar (mobile) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-10 bg-[#0a0d14] border-t border-white/10 flex">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a0d14] border-t border-white/10 flex">
         {links.map(({ href, label, Icon }) => {
           const active = pathname === href;
           return (
