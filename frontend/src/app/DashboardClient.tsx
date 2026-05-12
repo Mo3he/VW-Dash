@@ -242,26 +242,30 @@ export default function DashboardClient({ initial: initialProp, history: history
           }
         />
 
-        {isCharging && chargePower != null ? (
-          <StatusCard
-            label="Charge power"
-            value={
+        <StatusCard
+          label="Charge power"
+          value={
+            isCharging && chargePower != null ? (
               <span className="flex items-center gap-1.5">
                 <Zap size={16} className="text-yellow-400" />
                 {chargePower.toFixed(1)} kW
               </span>
-            }
-            sub={
-              remainingMin
+            ) : (
+              <span className="text-[var(--color-text-muted,#9ca3af)]">--</span>
+            )
+          }
+          sub={
+            isCharging
+              ? remainingMin
                 ? `~${remainingMin} min remaining`
                 : chargeRate != null
                 ? distanceUnit === "miles"
                   ? `+${(chargeRate * 0.621371).toFixed(0)} mph`
                   : `+${chargeRate.toFixed(0)} km/h`
                 : undefined
-            }
-          />
-        ) : null}
+              : undefined
+          }
+        />
 
         {isClimateActive && activeClimateLabel ? (
           <StatusCard
