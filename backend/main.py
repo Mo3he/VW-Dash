@@ -58,10 +58,53 @@ def _run_migrations() -> None:
                     raise
 
 
+def _backfill_avg_power() -> None:
+    """Compute avg_power_kw for sessions where it is NULL.
+
+    Tries snapshot-based averaging first (for natively recorded sessions).
+    Falls back to kwh_added / duration_h for imported sessions that have no snapshots.
+    """
+    from sqlalchemy.orm import Session as OrmSession
+    from models import ChargingSession, VehicleSnapshot
+    from sqlalchemy import select, func
+
+    with OrmSession(engine) as db:
+        sessions = db.scalars(
+            select(ChargingSession).where(
+                ChargingSession.avg_power_kw.is_(None),
+                ChargingSession.ended_at.is_not(None),
+            )
+        ).all()
+        updated = 0
+        for s in sessions:
+            # Try snapshot average first
+            avg = db.scalar(
+                select(func.avg(VehicleSnapshot.charge_power_kw)).where(
+                    VehicleSnapshot.recorded_at >= s.started_at,
+                    VehicleSnapshot.recorded_at <= s.ended_at,
+                    VehicleSnapshot.charge_power_kw.is_not(None),
+                    VehicleSnapshot.charge_power_kw > 0,
+                )
+            )
+            if avg is not None:
+                s.avg_power_kw = round(float(avg), 2)
+                updated += 1
+            elif s.kwh_added and s.kwh_added > 0 and s.started_at and s.ended_at:
+                # Fall back: derive from energy / duration
+                duration_h = (s.ended_at - s.started_at).total_seconds() / 3600
+                if duration_h > 0:
+                    s.avg_power_kw = round(s.kwh_added / duration_h, 2)
+                    updated += 1
+        if updated:
+            db.commit()
+            logger.info("Backfilled avg_power_kw for %d charging sessions", updated)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     _run_migrations()
+    _backfill_avg_power()
     init_state_from_db()
     init_weconnect()
     scheduler.add_job(
