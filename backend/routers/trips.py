@@ -6,6 +6,7 @@ import csv
 import io
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,49 @@ from models import Trip, TripPoint
 from config import settings
 
 router = APIRouter(prefix="/api/trips", tags=["trips"])
+
+
+class TripCreate(BaseModel):
+    started_at: str
+    ended_at: str
+    distance_km: float
+    soc_start_pct: Optional[float] = None
+    soc_end_pct: Optional[float] = None
+
+
+@router.post("", status_code=201)
+def create_trip(body: TripCreate, db: Session = Depends(get_db)):
+    started = datetime.fromisoformat(body.started_at.replace("Z", "+00:00"))
+    ended = datetime.fromisoformat(body.ended_at.replace("Z", "+00:00"))
+    if ended <= started:
+        raise HTTPException(status_code=422, detail="ended_at must be after started_at")
+    if body.distance_km <= 0:
+        raise HTTPException(status_code=422, detail="distance_km must be positive")
+
+    distance_km = round(body.distance_km, 2)
+    duration_h = (ended - started).total_seconds() / 3600
+
+    kwh_used: Optional[float] = None
+    efficiency: Optional[float] = None
+    if body.soc_start_pct and body.soc_end_pct and body.soc_start_pct > body.soc_end_pct:
+        kwh_used = round((body.soc_start_pct - body.soc_end_pct) / 100 * settings.battery_capacity_kwh, 2)
+        efficiency = round(kwh_used / distance_km * 100, 1)
+
+    trip = Trip(
+        started_at=started,
+        ended_at=ended,
+        distance_km=distance_km,
+        distance_miles=round(distance_km * 0.621371, 2),
+        soc_start_pct=body.soc_start_pct,
+        soc_end_pct=body.soc_end_pct,
+        kwh_used=kwh_used,
+        efficiency_kwh_100km=efficiency,
+        avg_speed_kmh=round(distance_km / duration_h, 1) if duration_h > 0 else None,
+    )
+    db.add(trip)
+    db.commit()
+    db.refresh(trip)
+    return _trip_to_dict(trip)
 
 
 def _parse_range(start_date: Optional[str], end_date: Optional[str], days: int) -> tuple[datetime, datetime]:

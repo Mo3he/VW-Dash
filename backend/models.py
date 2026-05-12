@@ -35,7 +35,9 @@ class VehicleSnapshot(Base):
     # Climate / cabin
     outdoor_temp_c: Mapped[Optional[float]] = mapped_column(Float)
     cabin_temp_c: Mapped[Optional[float]] = mapped_column(Float)
-    battery_temp_c: Mapped[Optional[float]] = mapped_column(Float)
+    battery_temp_c: Mapped[Optional[float]] = mapped_column(Float)  # kept for legacy rows
+    battery_temp_min_c: Mapped[Optional[float]] = mapped_column(Float)
+    battery_temp_max_c: Mapped[Optional[float]] = mapped_column(Float)
     climatisation_state: Mapped[Optional[str]] = mapped_column(String(32))
 
     # Vehicle status

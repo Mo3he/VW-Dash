@@ -32,10 +32,59 @@ class SessionUpdate(BaseModel):
     longitude: Optional[float] = None
     charger_id: Optional[int] = None  # use model_fields_set to detect explicit null
 
+
+class SessionCreate(BaseModel):
+    started_at: str
+    ended_at: str
+    soc_start_pct: Optional[float] = None
+    soc_end_pct: Optional[float] = None
+    kwh_added: Optional[float] = None
+    charge_type: Optional[str] = None
+    location_name: Optional[str] = None
+
 router = APIRouter(prefix="/api/charging", tags=["charging"])
 
 
-@router.get("/sessions")
+@router.post("/sessions", status_code=201)
+def create_session(body: SessionCreate, db: Session = Depends(get_db)):
+    started = datetime.fromisoformat(body.started_at.replace("Z", "+00:00"))
+    ended = datetime.fromisoformat(body.ended_at.replace("Z", "+00:00"))
+    if ended <= started:
+        raise HTTPException(status_code=422, detail="ended_at must be after started_at")
+
+    kwh_added = body.kwh_added
+    if kwh_added is None and body.soc_start_pct is not None and body.soc_end_pct is not None:
+        delta = body.soc_end_pct - body.soc_start_pct
+        if delta > 0:
+            kwh_added = round(delta / 100 * settings.battery_capacity_kwh, 2)
+
+    cost: Optional[float] = None
+    cost_per_kwh: Optional[float] = None
+    if kwh_added is not None and kwh_added > 0:
+        cost_per_kwh = settings.electricity_rate_per_kwh
+        cost = round(kwh_added * cost_per_kwh, 2)
+
+    range_added_km: Optional[float] = None
+    if (body.soc_start_pct is not None and body.soc_end_pct is not None
+            and body.soc_end_pct > body.soc_start_pct and settings.epa_rated_range_km > 0):
+        range_added_km = round(settings.epa_rated_range_km * (body.soc_end_pct - body.soc_start_pct) / 100, 1)
+
+    session = ChargingSession(
+        started_at=started,
+        ended_at=ended,
+        soc_start_pct=body.soc_start_pct,
+        soc_end_pct=body.soc_end_pct,
+        kwh_added=kwh_added,
+        cost=cost,
+        cost_per_kwh=cost_per_kwh,
+        charge_type=body.charge_type or "AC",
+        location_name=body.location_name or None,
+        range_added_km=range_added_km,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return _session_to_dict(session)
 def list_sessions(
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),

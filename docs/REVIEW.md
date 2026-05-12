@@ -1,6 +1,6 @@
 # VW-Dash — Project Review
 
-> Original snapshot: 2026-05-10. Re-audited 2026-05-10 after the fix pass. Re-audited 2026-05-11 after the UI/auth/theming pass.
+> Original snapshot: 2026-05-10. Re-audited 2026-05-10 after the fix pass. Re-audited 2026-05-11 after the UI/auth/theming pass. Re-audited 2026-05-12 after the charge detection fix pass.
 > **Legend:** ✅ done · ⚠️ partial · ❌ not done · ➖ won't-fix / out of scope
 
 > **Heads-up:** the original review flagged plaintext password storage. The repo now supports Fernet-at-rest, but **rotating the leaked credential is still a manual step the operator must do** — the encryption only protects newly written passwords. See item #7.
@@ -25,8 +25,8 @@ Added at [backend/poller.py:344-350](backend/poller.py#L344-L350). Reads `measur
 ### 4. ✅ Race conditions on shared poller state
 `threading.Lock` at [backend/poller.py:33](backend/poller.py#L33); `poll()` acquires non-blocking and skips overlapping ticks ([poller.py:534-540](backend/poller.py#L534-L540)). Module-level globals are now only mutated under that lock.
 
-### 5. ❌ SoC quantization on short trips
-Not addressed. Still uses snapshot-to-snapshot whole-percent SoC, so a 4-mile trip can show 0 kWh. Worth deferring until users complain — the plumbing for `cruisingRangeElectric_km` deltas is straightforward but not implemented.
+### 5. ✅ SoC quantization on short trips
+`_close_trip` tries SoC delta first, then falls back to a `cruisingRangeElectric_km` delta when SoC didn't drop a full percent ([backend/poller.py](backend/poller.py) — `range_drop / settings.epa_rated_range_km * settings.battery_capacity_kwh`). Requires `epa_rated_range_km` to be configured. For trips so short that neither SoC nor range changes, 0 kWh is the correct result — the API provides no finer-grained energy signal.
 
 ### 6. ✅ ChargeMap cleanup leak
 [frontend/src/components/ChargeMap.tsx:8,17-21,67-71](frontend/src/components/ChargeMap.tsx#L8) — Leaflet instance is held in a `useRef`, removed on cleanup, and reset before re-init.
@@ -92,6 +92,15 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 ### 20. ✅ Long open trips bounded
 [backend/poller.py:48-51](backend/poller.py#L48-L51) — `_TRIP_POINT_CAP = 500` breadcrumb cap and `_TRIP_MAX_DURATION_H = 24` force-close. Both enforced in `_update_trip`.
 
+### 21. ✅ Charging session split on API glitch
+Added `_charging_glitch_polls` debounce counter in `_update_charging_session`. A session is only closed after **2 consecutive non-CHARGING polls**, so a single stale or missing `chargingState` response no longer splits one real charge into two records.
+
+### 22. ✅ Negative `kwh_added` on stale SoC
+Added `if delta_soc > 0:` guard before computing `kwh_added`, `cost`, and `range_added_km` in `_update_charging_session`. A stale/out-of-order SoC from the API can no longer write a negative energy figure.
+
+### 23. ✅ Invalid JSON in event `detail` column
+Replaced all `f'{{"key": {value}}}'` f-strings in `_update_charging_session` and `_close_trip` with `json.dumps({...})`. `None` values now serialize as JSON `null` instead of the Python literal `None`, which was unparseable as JSON.
+
 ---
 
 ## 🟢 Missing features
@@ -111,7 +120,7 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 - ✅ **Change password UI** — inline form per user row in the Users section of Settings (calls `POST /api/auth/users/{id}/password`).
 
 ### Not done
-- ⚠️ **Manual entry** — delete is in; "add a trip I forgot to log" / "add a charging session by hand" UI was not built. Inline edit on existing rows already worked before this pass.
+- ✅ **Manual entry** — `POST /api/trips` and `POST /api/charging/sessions` endpoints added; "+" button on both pages opens a modal form. kWh/efficiency/cost are auto-computed from SoC delta if not provided explicitly.
 - ❌ **Battery SoH from charge curves** — still uses rated-range delta in [routers/vehicle.py](backend/routers/vehicle.py). The charging-curve data is now stored, so this is unblocked but unimplemented.
 - ❌ **Multi-vehicle UI** — VIN setting is honored by the poller, but the UI still assumes a single car.
 
@@ -145,10 +154,10 @@ Exponential backoff (30s → 600s cap) at [backend/poller.py:157-159](backend/po
 
 | Bucket | Done | Partial | Not done |
 |---|---|---|---|
-| Critical bugs (1–6) | 5 | 0 | 1 (#5 SoC quantization) |
+| Critical bugs (1–6) | 6 | 0 | 0 |
 | Security & privacy (7–10) | 3 | 1 (#7 — encryption done, no `_file` variant, manual rotation still required) | 0 |
-| Reliability (11–20) | 8 | 0 | 2 (#11 Alembic, #15 naive-datetime) |
-| Features | 11 | 1 (manual entry) | 2 (SoH, multi-vehicle) |
+| Reliability (11–23) | 11 | 0 | 2 (#11 Alembic, #15 naive-datetime) |
+| Features | 12 | 0 | 2 (SoH, multi-vehicle) |
 | Polish | 9 | 0 | 5 (a11y nit, tests, lint, dedup, stale Alembic dep) |
 
 **Operator follow-ups still required:**

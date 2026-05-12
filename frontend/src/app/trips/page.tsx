@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Download } from "lucide-react";
+import { Download, Plus, X } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Trip, TripStats } from "@/lib/types";
 import StatusCard from "@/components/StatusCard";
@@ -13,6 +13,26 @@ import { useDistanceUnit } from "@/app/SettingsProvider";
 
 const PAGE_SIZE = 20;
 
+interface AddTripForm {
+  started_at: string;
+  ended_at: string;
+  distance_km: string;
+  soc_start_pct: string;
+  soc_end_pct: string;
+}
+
+function toLocalDatetimeValue(isoOrEmpty: string): string {
+  if (!isoOrEmpty) return "";
+  // datetime-local inputs expect "YYYY-MM-DDTHH:mm"
+  return isoOrEmpty.slice(0, 16);
+}
+
+function localDatetimeToISO(value: string): string {
+  // Convert the datetime-local value to an ISO string (treat as UTC)
+  if (!value) return "";
+  return new Date(value).toISOString();
+}
+
 export default function TripsPage() {
   const [stats, setStats] = useState<TripStats | null>(null);
   const [trips, setTrips] = useState<Trip[]>([]);
@@ -22,6 +42,10 @@ export default function TripsPage() {
   const [range, setRange] = useState<DateRange>(defaultRange(30));
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState<AddTripForm>({ started_at: "", ended_at: "", distance_km: "", soc_start_pct: "", soc_end_pct: "" });
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addSaving, setAddSaving] = useState(false);
 
   const loadStats = useCallback(async () => {
     const s = await api.trips.stats(range.start, range.end).catch(() => null);
@@ -61,6 +85,31 @@ export default function TripsPage() {
     setLoadingMore(false);
   }
 
+  async function handleAddTrip(e: React.FormEvent) {
+    e.preventDefault();
+    setAddError(null);
+    setAddSaving(true);
+    try {
+      const body: Parameters<typeof api.trips.create>[0] = {
+        started_at: localDatetimeToISO(addForm.started_at),
+        ended_at: localDatetimeToISO(addForm.ended_at),
+        distance_km: parseFloat(addForm.distance_km),
+      };
+      if (addForm.soc_start_pct) body.soc_start_pct = parseFloat(addForm.soc_start_pct);
+      if (addForm.soc_end_pct) body.soc_end_pct = parseFloat(addForm.soc_end_pct);
+      const created = await api.trips.create(body);
+      setTrips((prev) => [created, ...prev]);
+      setTotal((n) => n + 1);
+      setShowAddModal(false);
+      setAddForm({ started_at: "", ended_at: "", distance_km: "", soc_start_pct: "", soc_end_pct: "" });
+      loadStats();
+    } catch (err: unknown) {
+      setAddError(err instanceof Error ? err.message : "Failed to save trip");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
   const sym = stats?.currency_symbol ?? "$";
   const after = stats?.currency_after ?? false;
   const fmtCost = (n: number) =>
@@ -87,7 +136,15 @@ export default function TripsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-white">Trips</h1>
         <div className="flex items-center gap-2">
-          <a
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            title="Add trip"
+            className="p-1.5 text-gray-500 hover:text-gray-300 transition"
+          >
+            <Plus size={16} />
+          </button>
+          <aa
             href={`/api/trips/export.csv?start_date=${range.start}&end_date=${range.end}`}
             onClick={async (e) => {
               const token = authHeaders().Authorization;
@@ -193,6 +250,88 @@ export default function TripsPage() {
         >
           {loadingMore ? "Loading…" : `Load more (${total - trips.length} remaining)`}
         </button>
+      )}
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-[#161b27] border border-white/10 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-white">Add trip</h2>
+              <button type="button" onClick={() => setShowAddModal(false)} className="text-gray-500 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+            <form onSubmit={handleAddTrip} className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Start time</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={addForm.started_at}
+                  onChange={(e) => setAddForm((f) => ({ ...f, started_at: e.target.value }))}
+                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">End time</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={addForm.ended_at}
+                  onChange={(e) => setAddForm((f) => ({ ...f, ended_at: e.target.value }))}
+                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Distance (km)</label>
+                <input
+                  type="number"
+                  required
+                  min="0.1"
+                  step="0.1"
+                  value={addForm.distance_km}
+                  onChange={(e) => setAddForm((f) => ({ ...f, distance_km: e.target.value }))}
+                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">SoC start %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={addForm.soc_start_pct}
+                    onChange={(e) => setAddForm((f) => ({ ...f, soc_start_pct: e.target.value }))}
+                    className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">SoC end %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={addForm.soc_end_pct}
+                    onChange={(e) => setAddForm((f) => ({ ...f, soc_end_pct: e.target.value }))}
+                    className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                  />
+                </div>
+              </div>
+              {addError && <p className="text-xs text-red-400">{addError}</p>}
+              <button
+                type="submit"
+                disabled={addSaving}
+                className="mt-1 w-full rounded-lg bg-[#00B0F0]/20 text-[#00B0F0] py-2 text-sm font-medium
+                  hover:bg-[#00B0F0]/30 disabled:opacity-50 transition"
+              >
+                {addSaving ? "Saving…" : "Add trip"}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

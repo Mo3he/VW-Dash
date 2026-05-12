@@ -254,6 +254,8 @@ def _snap_to_dict(s: VehicleSnapshot) -> dict:
         "outdoor_temp_c": s.outdoor_temp_c,
         "cabin_temp_c": s.cabin_temp_c,
         "battery_temp_c": s.battery_temp_c,
+        "battery_temp_min_c": s.battery_temp_min_c,
+        "battery_temp_max_c": s.battery_temp_max_c,
         "climatisation_state": s.climatisation_state,
         "locked": s.locked,
         "odometer_km": s.odometer_km,

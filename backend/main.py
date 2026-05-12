@@ -43,6 +43,8 @@ def _run_migrations() -> None:
             "ALTER TABLE trips ADD COLUMN range_km_start FLOAT",
             "ALTER TABLE vehicle_snapshots ADD COLUMN car_captured_at DATETIME",
             "ALTER TABLE charging_sessions ADD COLUMN charger_id INTEGER",
+            "ALTER TABLE vehicle_snapshots ADD COLUMN battery_temp_min_c FLOAT",
+            "ALTER TABLE vehicle_snapshots ADD COLUMN battery_temp_max_c FLOAT",
         ]:
             try:
                 conn.execute(text(stmt))

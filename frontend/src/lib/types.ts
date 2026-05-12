@@ -16,6 +16,8 @@ export interface VehicleSnapshot {
   outdoor_temp_c: number | null;
   cabin_temp_c: number | null;
   battery_temp_c: number | null;
+  battery_temp_min_c: number | null;
+  battery_temp_max_c: number | null;
   climatisation_state: string | null;
   locked: boolean | null;
   odometer_km: number | null;
@@ -168,6 +170,8 @@ export interface WsMessage {
   locked: boolean | null;
   outdoor_temp_c: number | null;
   battery_temp_c: number | null;
+  battery_temp_min_c: number | null;
+  battery_temp_max_c: number | null;
   cabin_temp_c: number | null;
   climatisation_state: string | null;
   recorded_at: string;

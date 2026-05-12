@@ -4,6 +4,7 @@ import {
   Lock, Unlock, Plug, Thermometer, Zap, Wind, Gauge, RefreshCw,
 } from "lucide-react";
 import SocGauge from "@/components/SocGauge";
+import ChargingGauge from "@/components/ChargingGauge";
 import StatusCard from "@/components/StatusCard";
 import SocHistory from "@/components/SocHistory";
 import EventsFeed from "@/components/EventsFeed";
@@ -93,6 +94,9 @@ export default function DashboardClient({ initial: initialProp, history: history
   const chargeType = live?.charge_type ?? initial?.charge_type ?? null;
   const plugged = live?.plug_connected ?? initial?.plug_connected ?? null;
   const locked = live?.locked ?? initial?.locked ?? null;
+  const batteryTempMinC = live?.battery_temp_min_c ?? initial?.battery_temp_min_c ?? null;
+  const batteryTempMaxC = live?.battery_temp_max_c ?? initial?.battery_temp_max_c ?? null;
+  // fallback to legacy average column for old snapshots that lack min/max
   const batteryTempC = live?.battery_temp_c ?? initial?.battery_temp_c ?? null;
   const cabinTempC = live?.cabin_temp_c ?? initial?.cabin_temp_c ?? null;
   const climatisationState = live?.climatisation_state ?? initial?.climatisation_state ?? null;
@@ -158,8 +162,51 @@ export default function DashboardClient({ initial: initialProp, history: history
       </div>
 
       {soc != null ? (
-        <div className="rounded-2xl bg-[#161b27] border border-white/5 p-6 flex justify-center">
-          <SocGauge soc={soc} rangeKm={rangeKm} targetSoc={targetSoc} />
+        <div className="rounded-2xl bg-[#161b27] border border-white/5 p-6">
+          {isCharging ? (
+            <div className="flex items-end justify-around gap-4">
+              {/* Charge power gauge — 0–150 kW range covers AC & DC */}
+              <ChargingGauge
+                label="Charge power"
+                value={chargePower != null ? `${chargePower.toFixed(1)} kW` : "—"}
+                fill={chargePower != null ? chargePower / 150 : 0}
+                color="#facc15"
+              />
+              {/* Centre: SoC (full size) */}
+              <SocGauge soc={soc} rangeKm={rangeKm} targetSoc={targetSoc} showLabel />
+              {/* Remaining time gauge */}
+              <ChargingGauge
+                label="Remaining"
+                value={
+                  remainingMin != null
+                    ? remainingMin < 60
+                      ? `${remainingMin} min`
+                      : `${Math.floor(remainingMin / 60)}h ${remainingMin % 60}m`
+                    : "—"
+                }
+                sub={
+                  remainingMin != null
+                    ? (() => {
+                        const finish = new Date(Date.now() + remainingMin * 60000);
+                        return finish.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                      })()
+                    : null
+                }
+                fill={
+                  remainingMin != null && targetSoc != null && soc != null
+                    ? 1 - Math.min(1, remainingMin / Math.max(1, ((targetSoc - soc) / 100) * 600))
+                    : remainingMin != null
+                    ? 1 - Math.min(1, remainingMin / 600)
+                    : 0
+                }
+                color="#00B0F0"
+              />
+            </div>
+          ) : (
+            <div className="flex justify-center">
+              <SocGauge soc={soc} rangeKm={rangeKm} targetSoc={targetSoc} />
+            </div>
+          )}
         </div>
       ) : (
         <div className="rounded-2xl bg-[#161b27] border border-white/5 p-6 text-center text-gray-500">
@@ -232,7 +279,12 @@ export default function DashboardClient({ initial: initialProp, history: history
         <StatusCard
           label="Battery temp"
           value={
-            batteryTempC != null ? (
+            batteryTempMinC != null && batteryTempMaxC != null ? (
+              <span className="flex items-center gap-1.5">
+                <Thermometer size={16} className="text-orange-400" />
+                {batteryTempMinC.toFixed(1)}°C – {batteryTempMaxC.toFixed(1)}°C
+              </span>
+            ) : batteryTempC != null ? (
               <span className="flex items-center gap-1.5">
                 <Thermometer size={16} className="text-orange-400" />
                 {batteryTempC.toFixed(1)}°C
@@ -241,6 +293,7 @@ export default function DashboardClient({ initial: initialProp, history: history
               "—"
             )
           }
+          sub={batteryTempMinC != null && batteryTempMaxC != null ? "min – max" : undefined}
         />
 
         <StatusCard

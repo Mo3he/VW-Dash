@@ -4,6 +4,7 @@ Polls the WeConnect API and persists snapshots + derived session/trip records.
 Runs as an APScheduler background job inside the FastAPI process.
 """
 import asyncio
+import json
 import logging
 import os
 import queue
@@ -34,9 +35,10 @@ _wc_next_retry: datetime | None = None   # earliest time to retry after backoff
 _poll_lock = threading.Lock()
 
 # State carried between poll cycles to detect session boundaries
-_prev_charging_state: str | None = None
-_prev_soc: float | None = None
 _active_charging_session_id: int | None = None
+# Consecutive polls where charging state was not CHARGING while a session was active.
+# Used to debounce transient API dropouts — only close the session after 2+ polls.
+_charging_glitch_polls: int = 0
 _active_trip_id: int | None = None
 _prev_odometer: float | None = None
 _trip_start_odometer: float | None = None
@@ -112,6 +114,7 @@ def init_state_from_db() -> None:
     """Recover in-memory trip/charging state from the DB after a restart."""
     global _active_trip_id, _trip_start_odometer, _active_charging_session_id, _prev_odometer
     global _trip_point_count, _prev_parking_time, _prev_lat, _prev_lon
+    global _prev_locked, _prev_plug_connected, _prev_climatisation_state
 
     db = SessionLocal()
     try:
@@ -186,6 +189,12 @@ def init_state_from_db() -> None:
             # the first poll just establishes the baseline state safely.
             _prev_lat = last_snap.latitude
             _prev_lon = last_snap.longitude
+            # Seed event-detection baselines so the first post-restart poll
+            # doesn't create a blind spot where a lock/unlock/plug/climate
+            # change goes undetected.
+            _prev_locked = last_snap.locked
+            _prev_plug_connected = last_snap.plug_connected
+            _prev_climatisation_state = last_snap.climatisation_state
     except Exception as exc:
         logger.warning("Could not restore state from DB: %s", exc)
     finally:
@@ -376,6 +385,10 @@ def _extract_snapshot(vehicle) -> dict:
             car_timestamps.append(ts) if (ts := _car_ts(bt)) else None
             t_min = _safe_float(_val(bt, "temperatureHvBatteryMin_K"))
             t_max = _safe_float(_val(bt, "temperatureHvBatteryMax_K"))
+            if t_min is not None:
+                data["battery_temp_min_c"] = round(t_min - 273.15, 1)
+            if t_max is not None:
+                data["battery_temp_max_c"] = round(t_max - 273.15, 1)
             if t_min is not None and t_max is not None:
                 data["battery_temp_c"] = round((t_min + t_max) / 2 - 273.15, 1)
 
@@ -395,7 +408,7 @@ def _extract_snapshot(vehicle) -> dict:
 
 
 def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
-    global _prev_charging_state, _active_charging_session_id, _prev_soc, _charging_power_samples
+    global _active_charging_session_id, _charging_power_samples, _charging_glitch_polls
 
     state = snap.charging_state
     is_charging = state == "CHARGING"
@@ -420,14 +433,16 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
             if nearby:
                 session.charger_id = nearby.id
                 session.location_name = nearby.name
+        _charging_glitch_polls = 0
         _charging_power_samples = []
         if snap.charge_power_kw and snap.charge_power_kw > 0:
             _charging_power_samples.append(snap.charge_power_kw)
-        _emit_event(db, "charging_started", f'{{"soc_pct": {snap.soc_pct}}}')
+        _emit_event(db, "charging_started", json.dumps({"soc_pct": snap.soc_pct}))
         webhook.fire("charging_started", {"session_id": session.id, "soc_pct": snap.soc_pct, "charge_type": snap.charge_type})
         logger.info("Charging session %d started (SOC %.0f%%)", session.id, snap.soc_pct or 0)
 
     elif is_charging and _active_charging_session_id is not None:
+        _charging_glitch_polls = 0
         if snap.charge_power_kw and snap.charge_power_kw > 0:
             _charging_power_samples.append(snap.charge_power_kw)
         session = db.get(ChargingSession, _active_charging_session_id)
@@ -436,32 +451,36 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
                 session.peak_power_kw = snap.charge_power_kw
 
     elif not is_charging and _active_charging_session_id is not None:
+        # Debounce: require 2 consecutive non-CHARGING polls before closing the session.
+        # A single stale/missing API response should not split a real charge in two.
+        _charging_glitch_polls += 1
+        if _charging_glitch_polls < 2:
+            return
         session = db.get(ChargingSession, _active_charging_session_id)
         if session:
             session.ended_at = snap.recorded_at
             session.soc_end_pct = snap.soc_pct
             if session.soc_start_pct and snap.soc_pct:
                 delta_soc = snap.soc_pct - session.soc_start_pct
-                session.kwh_added = round(delta_soc / 100 * settings.battery_capacity_kwh, 2)
-                session.cost_per_kwh = settings.electricity_rate_per_kwh
-                session.cost = round(session.kwh_added * settings.electricity_rate_per_kwh, 2)
-                if snap.range_km and snap.soc_pct:
-                    session.range_added_km = round(
-                        (snap.range_km / snap.soc_pct) * delta_soc, 1
-                    )
+                if delta_soc > 0:
+                    session.kwh_added = round(delta_soc / 100 * settings.battery_capacity_kwh, 2)
+                    session.cost_per_kwh = settings.electricity_rate_per_kwh
+                    session.cost = round(session.kwh_added * settings.electricity_rate_per_kwh, 2)
+                    if snap.range_km and snap.soc_pct:
+                        session.range_added_km = round(
+                            (snap.range_km / snap.soc_pct) * delta_soc, 1
+                        )
             if _charging_power_samples:
                 session.avg_power_kw = round(
                     sum(_charging_power_samples) / len(_charging_power_samples), 2
                 )
-            _emit_event(db, "charging_ended", f'{{"soc_pct": {snap.soc_pct}, "kwh_added": {session.kwh_added}}}')
+            _emit_event(db, "charging_ended", json.dumps({"soc_pct": snap.soc_pct, "kwh_added": session.kwh_added}))
             webhook.fire("charging_ended", {"session_id": session.id, "soc_pct": snap.soc_pct, "kwh_added": session.kwh_added})
             logger.info("Charging session %d ended (SOC %.0f%%)", session.id, snap.soc_pct or 0)
             _queue_geocode("session", session.id)
         _active_charging_session_id = None
+        _charging_glitch_polls = 0
         _charging_power_samples = []
-
-    _prev_charging_state = state
-    _prev_soc = snap.soc_pct
 
 
 def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
@@ -500,7 +519,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
         trip.kwh_used = round(kwh, 2)
         if dist and dist > 0:
             trip.efficiency_kwh_100km = round(kwh / dist * 100, 1)
-    _emit_event(db, "trip_ended", f'{{"distance_km": {trip.distance_km}, "kwh_used": {trip.kwh_used}}}')
+    _emit_event(db, "trip_ended", json.dumps({"distance_km": trip.distance_km, "kwh_used": trip.kwh_used}))
     webhook.fire("trip_ended", {"trip_id": trip.id, "distance_km": trip.distance_km, "kwh_used": trip.kwh_used})
     logger.info("Trip %d ended (%.1f km)", trip.id, trip.distance_km or 0)
     _queue_geocode("trip", trip.id)
@@ -587,7 +606,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             _trip_point_count = 0
             trigger = "parking_disappeared" if parking_disappeared else ("stale_parking" if should_start_stale_parking else "odometer")
             logger.info("Trip %d started (trigger=%s, soc=%.0f%%)", trip.id, trigger, snap.soc_pct or 0)
-            _emit_event(db, "trip_started", f'{{"soc_pct": {snap.soc_pct}}}')
+            _emit_event(db, "trip_started", json.dumps({"soc_pct": snap.soc_pct}))
             webhook.fire("trip_started", {"trip_id": trip.id, "soc_pct": snap.soc_pct})
 
     # --- BREADCRUMBS ---
@@ -710,6 +729,8 @@ def _do_poll() -> None:
         "locked": snap.locked,
         "outdoor_temp_c": snap.outdoor_temp_c,
         "battery_temp_c": snap.battery_temp_c,
+        "battery_temp_min_c": snap.battery_temp_min_c,
+        "battery_temp_max_c": snap.battery_temp_max_c,
         "cabin_temp_c": snap.cabin_temp_c,
         "climatisation_state": snap.climatisation_state,
         "recorded_at": iso_utc(snap.recorded_at),

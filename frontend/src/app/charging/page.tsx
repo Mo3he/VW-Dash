@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Download } from "lucide-react";
+import { Download, Plus, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { authHeaders } from "@/lib/auth";
 import type { Charger, ChargingSession, ChargingStats, RangeHealth } from "@/lib/types";
@@ -13,6 +13,21 @@ import { useDistanceUnit } from "@/app/SettingsProvider";
 
 const PAGE_SIZE = 20;
 
+interface AddSessionForm {
+  started_at: string;
+  ended_at: string;
+  soc_start_pct: string;
+  soc_end_pct: string;
+  kwh_added: string;
+  charge_type: string;
+  location_name: string;
+}
+
+function localDatetimeToISO(value: string): string {
+  if (!value) return "";
+  return new Date(value).toISOString();
+}
+
 export default function ChargingPage() {
   const [stats, setStats] = useState<ChargingStats | null>(null);
   const [rangeHealth, setRangeHealth] = useState<RangeHealth | null>(null);
@@ -23,6 +38,10 @@ export default function ChargingPage() {
   const [chargers, setChargers] = useState<Charger[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState<AddSessionForm>({ started_at: "", ended_at: "", soc_start_pct: "", soc_end_pct: "", kwh_added: "", charge_type: "AC", location_name: "" });
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addSaving, setAddSaving] = useState(false);
 
   const loadStats = useCallback(async () => {
     const [s, rh] = await Promise.all([
@@ -64,6 +83,33 @@ export default function ChargingPage() {
     loadStats();
   }
 
+  async function handleAddSession(e: React.FormEvent) {
+    e.preventDefault();
+    setAddError(null);
+    setAddSaving(true);
+    try {
+      const body: Parameters<typeof api.charging.createSession>[0] = {
+        started_at: localDatetimeToISO(addForm.started_at),
+        ended_at: localDatetimeToISO(addForm.ended_at),
+        charge_type: addForm.charge_type || "AC",
+      };
+      if (addForm.soc_start_pct) body.soc_start_pct = parseFloat(addForm.soc_start_pct);
+      if (addForm.soc_end_pct) body.soc_end_pct = parseFloat(addForm.soc_end_pct);
+      if (addForm.kwh_added) body.kwh_added = parseFloat(addForm.kwh_added);
+      if (addForm.location_name.trim()) body.location_name = addForm.location_name.trim();
+      const created = await api.charging.createSession(body);
+      setSessions((prev) => [created, ...prev]);
+      setTotal((n) => n + 1);
+      setShowAddModal(false);
+      setAddForm({ started_at: "", ended_at: "", soc_start_pct: "", soc_end_pct: "", kwh_added: "", charge_type: "AC", location_name: "" });
+      loadStats();
+    } catch (err: unknown) {
+      setAddError(err instanceof Error ? err.message : "Failed to save session");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
   const distanceUnit = useDistanceUnit();
   const sym = stats?.currency_symbol ?? "$";
   const after = stats?.currency_after ?? false;
@@ -89,6 +135,14 @@ export default function ChargingPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-white">Charging</h1>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            title="Add session"
+            className="p-1.5 text-gray-500 hover:text-gray-300 transition"
+          >
+            <Plus size={16} />
+          </button>
           <a
             href={`/api/charging/sessions/export.csv?start_date=${range.start}&end_date=${range.end}`}
             onClick={async (e) => {
@@ -205,6 +259,110 @@ export default function ChargingPage() {
         >
           {loadingMore ? "Loading…" : `Load more (${total - sessions.length} remaining)`}
         </button>
+      )}
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-[#161b27] border border-white/10 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-white">Add charging session</h2>
+              <button type="button" onClick={() => setShowAddModal(false)} className="text-gray-500 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+            <form onSubmit={handleAddSession} className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Start time</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={addForm.started_at}
+                  onChange={(e) => setAddForm((f) => ({ ...f, started_at: e.target.value }))}
+                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">End time</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={addForm.ended_at}
+                  onChange={(e) => setAddForm((f) => ({ ...f, ended_at: e.target.value }))}
+                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">SoC start %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={addForm.soc_start_pct}
+                    onChange={(e) => setAddForm((f) => ({ ...f, soc_start_pct: e.target.value }))}
+                    className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">SoC end %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={addForm.soc_end_pct}
+                    onChange={(e) => setAddForm((f) => ({ ...f, soc_end_pct: e.target.value }))}
+                    className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">kWh added</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="auto"
+                    value={addForm.kwh_added}
+                    onChange={(e) => setAddForm((f) => ({ ...f, kwh_added: e.target.value }))}
+                    className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#00B0F0]/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Type</label>
+                  <select
+                    value={addForm.charge_type}
+                    onChange={(e) => setAddForm((f) => ({ ...f, charge_type: e.target.value }))}
+                    className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                  >
+                    <option value="AC">AC</option>
+                    <option value="DC">DC</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Location (optional)</label>
+                <input
+                  type="text"
+                  value={addForm.location_name}
+                  onChange={(e) => setAddForm((f) => ({ ...f, location_name: e.target.value }))}
+                  className="w-full rounded-lg bg-[#0d1117] border border-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00B0F0]/50"
+                />
+              </div>
+              {addError && <p className="text-xs text-red-400">{addError}</p>}
+              <button
+                type="submit"
+                disabled={addSaving}
+                className="mt-1 w-full rounded-lg bg-[#00B0F0]/20 text-[#00B0F0] py-2 text-sm font-medium
+                  hover:bg-[#00B0F0]/30 disabled:opacity-50 transition"
+              >
+                {addSaving ? "Saving…" : "Add session"}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

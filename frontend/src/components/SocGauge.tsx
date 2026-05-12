@@ -6,9 +6,11 @@ interface Props {
   soc: number;
   rangeKm: number | null;
   targetSoc?: number | null;
+  /** When shown alongside charging gauges, display a label below to match them. */
+  showLabel?: boolean;
 }
 
-export default function SocGauge({ soc, rangeKm, targetSoc }: Props) {
+export default function SocGauge({ soc, rangeKm, targetSoc, showLabel }: Props) {
   const distanceUnit = useDistanceUnit();
   const accent = useAccentColor();
   const radius = 80;
@@ -66,6 +68,9 @@ export default function SocGauge({ soc, rangeKm, targetSoc }: Props) {
           </div>
         )}
       </div>
+      {showLabel && (
+        <div className="text-xs text-gray-500 uppercase tracking-wider">Battery</div>
+      )}
     </div>
   );
 }

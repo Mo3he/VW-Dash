@@ -113,6 +113,11 @@ export const api = {
     updateSession: (id: number, body: Partial<ChargingSession>) =>
       patch<ChargingSession>(`/charging/sessions/${id}`, body),
     deleteSession: (id: number) => del(`/charging/sessions/${id}`),
+    createSession: (body: {
+      started_at: string; ended_at: string;
+      soc_start_pct?: number; soc_end_pct?: number;
+      kwh_added?: number; charge_type?: string; location_name?: string;
+    }) => post<ChargingSession>("/charging/sessions", body),
   },
   trips: {
     list: (limit = 20, offset = 0, start?: string, end?: string) =>
@@ -126,6 +131,10 @@ export const api = {
     journeys: (start: string, end: string) =>
       get<Journey[]>(`/trips/journeys?start_date=${start}&end_date=${end}`),
     delete: (id: number) => del(`/trips/${id}`),
+    create: (body: {
+      started_at: string; ended_at: string; distance_km: number;
+      soc_start_pct?: number; soc_end_pct?: number;
+    }) => post<Trip>("/trips", body),
   },
   chargers: {
     list: () => get<Charger[]>("/chargers"),
