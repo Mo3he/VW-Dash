@@ -486,7 +486,7 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
     global _active_charging_session_id, _charging_power_samples, _charging_glitch_polls
 
     state = snap.charging_state
-    is_charging = state == "CHARGING"
+    is_charging = (state or "").upper() == "CHARGING"
 
     if is_charging and _active_charging_session_id is None:
         # Fall back to last known parked position if the parking domain isn't returning
@@ -608,7 +608,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     global _prev_parking_time, _prev_lat, _prev_lon, _parking_time_unchanged_polls
 
     odometer = snap.odometer_km
-    charging = snap.charging_state == "CHARGING"
+    charging = (snap.charging_state or "").upper() == "CHARGING"
     plug_in = snap.plug_connected
     parking_time = snap.parking_time
 

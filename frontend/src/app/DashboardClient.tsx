@@ -25,6 +25,7 @@ function chargingLabel(state: string | null) {
   if (!state) return "Unknown";
   const map: Record<string, string> = {
     CHARGING: "Charging",
+    charging: "Charging",
     notReadyForCharging: "Not charging",
     readyForCharging: "Plugged in",
     READY_FOR_CHARGING: "Plugged in",
@@ -115,7 +116,7 @@ export default function DashboardClient({ initial: initialProp, history: history
 
   const recordedAt = live?.recorded_at ?? initial?.recorded_at ?? null;
   const carCapturedAt = live?.car_captured_at ?? initial?.car_captured_at ?? null;
-  const isCharging = chargingState === "CHARGING";
+  const isCharging = chargingState?.toUpperCase() === "CHARGING";
   const isClimateActive = climatisationState != null &&
     climatisationState !== "OFF" &&
     climatisationState !== "off" &&
