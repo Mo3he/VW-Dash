@@ -344,8 +344,8 @@ export default function DashboardClient({ initial: initialProp, history: history
             className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
               disabled:opacity-40 disabled:cursor-not-allowed transition
               ${isClimateActive
-                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20"
-                : "bg-gray-500/10 text-gray-300 border border-white/10 hover:bg-gray-500/20"}`}
+                ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20"
+                : "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20"}`}
           >
             <Wind size={15} />
             {isClimateActive ? "Stop AC" : "Start AC"}
@@ -367,7 +367,7 @@ export default function DashboardClient({ initial: initialProp, history: history
               disabled:opacity-40 disabled:cursor-not-allowed transition
               ${isCharging
                 ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20"
-                : "bg-gray-500/10 text-gray-300 border border-white/10 hover:bg-gray-500/20"}`}
+                : "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20"}`}
           >
             <Plug size={15} />
             {isCharging ? "Stop Charging" : "Start Charging"}

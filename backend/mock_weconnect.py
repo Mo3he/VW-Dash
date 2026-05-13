@@ -77,11 +77,55 @@ class _MockWindow:
         self.openState = _OpenState()
 
 
+class _MockControl:
+    """Mimics a weconnect ChangeableAttribute used for vehicle controls."""
+
+    def __init__(self, on_set) -> None:
+        self._on_set = on_set
+        self.value = None
+
+    def __setattr__(self, name, val):
+        if name == "value" and not name.startswith("_") and hasattr(self, "_on_set"):
+            self._on_set(val)
+        object.__setattr__(self, name, val)
+
+
+class _MockControls:
+    """
+    Mimics weconnect Controls object.  Setting .climatizationControl.value or
+    .chargingControl.value updates the mock state immediately so the next poll
+    reflects the command.
+    """
+
+    def __init__(self, state: "MockVehicleState") -> None:
+        self._state = state
+
+        def _set_climate(op):
+            from weconnect.elements.control_operation import ControlOperation
+            if op == ControlOperation.START:
+                self._state.climatisation_state = "heating"
+            else:
+                self._state.climatisation_state = "off"
+
+        def _set_charging(op):
+            from weconnect.elements.control_operation import ControlOperation
+            if op == ControlOperation.START:
+                self._state.charging_state = "CHARGING"
+                self._state.charge_power_kw = 11.0
+            else:
+                self._state.charging_state = "readyForCharging"
+                self._state.charge_power_kw = None
+
+        self.climatizationControl = _MockControl(_set_climate)
+        self.chargingControl = _MockControl(_set_charging)
+
+
 class _MockVehicle:
     """Mimics a weconnect vehicle object's .domains dict."""
 
-    def __init__(self, domains: dict[str, dict[str, _Status | None]]) -> None:
+    def __init__(self, domains: dict[str, dict[str, _Status | None]], state: "MockVehicleState | None" = None) -> None:
         self.domains = domains
+        self.controls = _MockControls(state) if state is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +381,7 @@ class MockWeConnect:
         self._tick: int = 0
         self._override: dict[str, Any] = {}
         self.vehicles: dict[str, _MockVehicle] = {
-            self.MOCK_VIN: _MockVehicle(self._state.to_domains())
+            self.MOCK_VIN: _MockVehicle(self._state.to_domains(), self._state)
         }
 
     # ------------------------------------------------------------------
@@ -359,7 +403,7 @@ class MockWeConnect:
                     setattr(self._state, key, value)
             self._override.clear()
 
-            self.vehicles[self.MOCK_VIN] = _MockVehicle(self._state.to_domains())
+            self.vehicles[self.MOCK_VIN] = _MockVehicle(self._state.to_domains(), self._state)
 
     # ------------------------------------------------------------------
     # Dev-control interface (called from dev_router.py)
