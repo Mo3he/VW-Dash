@@ -3,13 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import type { WsMessage } from "@/lib/types";
 
 function getWsUrl(): string {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  // In development Next.js dev server doesn't proxy WebSocket upgrades,
-  // so connect directly to the FastAPI backend port.
-  if (process.env.NODE_ENV === "development") {
-    return `${protocol}://${window.location.hostname}:8000/ws`;
+  // Explicit override — used in dev when pointing at a non-default backend port
+  // e.g. NEXT_PUBLIC_WS_URL=ws://127.0.0.1:8001/ws
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
   }
-  // In production the proxy-server.js forwards WS upgrades from port 3000 → 8000.
+  // Production: proxy-server.js forwards WS upgrades on the same host/port
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${window.location.host}/ws`;
 }
 

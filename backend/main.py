@@ -46,6 +46,7 @@ def _run_migrations() -> None:
             "ALTER TABLE charging_sessions ADD COLUMN charger_id INTEGER",
             "ALTER TABLE vehicle_snapshots ADD COLUMN battery_temp_min_c FLOAT",
             "ALTER TABLE vehicle_snapshots ADD COLUMN battery_temp_max_c FLOAT",
+            "ALTER TABLE vehicle_snapshots ADD COLUMN windows_json TEXT",
         ]:
             try:
                 conn.execute(text(stmt))
@@ -120,6 +121,9 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     logger.info("Scheduler started — polling every %ds", settings.poll_interval_seconds)
+    # Give the settings router a reference so poll_interval_seconds PATCH takes live effect
+    from routers.settings_router import set_scheduler as _set_scheduler
+    _set_scheduler(scheduler)
     yield
     scheduler.shutdown()
 
@@ -143,6 +147,10 @@ async def auth_middleware(request: Request, call_next):
 
     # Always-public paths
     if path in _AUTH_EXEMPT or path == "/ws":
+        return await call_next(request)
+
+    # Dev endpoints are local-only and only exist in mock mode — no auth needed
+    if settings.use_mock_weconnect and path.startswith("/api/dev"):
         return await call_next(request)
 
     # Settings GET is public so the Next.js server-side layout render can read UI prefs
@@ -176,6 +184,11 @@ app.include_router(import_router.router)
 app.include_router(events_router.router)
 app.include_router(stats_router.router)
 app.include_router(geocoder_router.router)
+
+if settings.use_mock_weconnect:
+    from routers.dev_router import router as dev_router
+    app.include_router(dev_router)
+    logger.info("Dev router mounted at /api/dev (mock mode active)")
 
 
 @app.websocket("/ws")

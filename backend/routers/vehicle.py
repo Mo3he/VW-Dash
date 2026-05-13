@@ -234,6 +234,34 @@ def control_climate(action: Literal["start", "stop"] = Query(...)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.post("/charging-control")
+def control_charging(action: Literal["start", "stop"] = Query(...)):
+    """Send a start/stop charging command to the vehicle."""
+    from weconnect.elements.control_operation import ControlOperation
+    from poller import get_weconnect_vehicle
+    _wc, vehicle = get_weconnect_vehicle()
+    if vehicle is None:
+        raise HTTPException(status_code=503, detail="Vehicle not connected to WeConnect")
+    try:
+        controls = getattr(vehicle, "controls", None)
+        charging_control = getattr(controls, "chargingControl", None) if controls else None
+        if charging_control is None:
+            raise HTTPException(status_code=503, detail="Charging control not available for this vehicle")
+
+        operation = ControlOperation.START if action == "start" else ControlOperation.STOP
+
+        try:
+            charging_control.value = operation
+        except Exception as inner:
+            raise HTTPException(status_code=500, detail=f"Charging command failed: {inner}")
+
+        return {"status": "command_sent", "action": action}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 def _snap_to_dict(s: VehicleSnapshot) -> dict:
     return {
         "id": s.id,
@@ -259,5 +287,6 @@ def _snap_to_dict(s: VehicleSnapshot) -> dict:
         "locked": s.locked,
         "odometer_km": s.odometer_km,
         "plug_connected": s.plug_connected,
+        "windows": __import__("json").loads(s.windows_json) if s.windows_json else None,
         "car_captured_at": iso_utc(s.car_captured_at),
     }

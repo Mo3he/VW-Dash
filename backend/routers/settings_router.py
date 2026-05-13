@@ -11,6 +11,13 @@ _executor = ThreadPoolExecutor(max_workers=1)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
+# Scheduler reference injected by main.py after startup
+_scheduler = None
+
+def set_scheduler(s) -> None:
+    global _scheduler
+    _scheduler = s
+
 
 class SettingsUpdate(BaseModel):
     vw_username: str | None = None
@@ -78,6 +85,13 @@ def update_settings(body: SettingsUpdate):
     if credentials_changed:
         poller.reset_weconnect()
         _executor.submit(poller.poll)
+
+    if body.poll_interval_seconds is not None and _scheduler is not None:
+        _scheduler.reschedule_job(
+            "poller",
+            trigger="interval",
+            seconds=settings.poll_interval_seconds,
+        )
 
     return get_settings()
 

@@ -9,7 +9,13 @@ A self-hosted dashboard for VW ID. series electric vehicles (ID.3, ID.4, ID.7, a
 - Charge power, rate, and time remaining (while charging)
 - Climate state, battery temperature, cabin temperature
 - Door lock state and plug connection
+- Window open status — per-window open percentage (front left/right, rear left/right, sunroof)
 - Live event feed — trip started/ended, charging started/ended, connector plugged/unplugged, climate changes, lock changes
+- Live WebSocket updates — dashboard refreshes automatically without reloading the page
+
+### Vehicle controls
+- **Climate control** — start/stop cabin pre-conditioning with a single toggle button
+- **Charging control** — start/stop charging remotely (button disabled when unplugged)
 
 ### Trips
 - Distance, efficiency (kWh/100 km), energy used, average speed, SoC delta
@@ -69,6 +75,21 @@ Open **http://localhost:3000**. On first launch you'll be prompted to create an 
 Data is persisted in a `./data/` folder next to the compose file.
 
 > Only port **3000** needs to be exposed. The WebSocket for live status and the backend API are proxied through it automatically.
+
+### Custom WebSocket URL (advanced)
+
+In production the WebSocket is proxied through port 3000. If you run the frontend and backend on separate hosts, set:
+
+```bash
+NEXT_PUBLIC_WS_URL=ws://your-backend-host:8000/ws
+```
+
+For local development, create `frontend/.env.local`:
+
+```
+BACKEND_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_WS_URL=ws://127.0.0.1:8000/ws
+```
 
 ## Quick start (local dev)
 
@@ -180,12 +201,14 @@ VW-Dash/
 │   ├── poller.py            # VW API polling, trip/session detection, geocoding, event emission
 │   ├── geocoder.py          # Nominatim reverse geocoding helper
 │   ├── webhook.py           # Fire-and-forget webhook notifications
+│   ├── mock_weconnect.py    # Mock WeConnect provider for dev/testing (USE_MOCK_WECONNECT=1)
 │   ├── import_vwsfriend.py  # VWsFriend PostgreSQL backup importer
 │   └── routers/
 │       ├── auth.py          # Login, setup, user management (JWT)
-│       ├── vehicle.py       # Snapshots, history, battery health, vampire drain
+│       ├── vehicle.py       # Snapshots, history, battery health, vampire drain, vehicle controls
 │       ├── trips.py         # Trip list, stats, route, export CSV, delete
 │       ├── charging.py      # Sessions, stats, curve, export CSV, delete
+│       ├── dev_router.py    # Dev-only endpoints for mock state overrides
 │       ├── events_router.py
 │       ├── import_router.py
 │       └── settings_router.py

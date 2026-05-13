@@ -22,6 +22,7 @@ export interface VehicleSnapshot {
   locked: boolean | null;
   odometer_km: number | null;
   plug_connected: boolean | null;
+  windows: Record<string, { open_pct?: number; state?: string }> | null;
   car_captured_at: string | null;
 }
 

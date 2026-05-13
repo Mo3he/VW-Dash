@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # Notifications
     webhook_url: str = ""       # POST JSON to this URL on key events (charge/trip start/end)
 
+    # Development / testing
+    use_mock_weconnect: bool = False  # set USE_MOCK_WC=1 to replace the real WeConnect with a scriptable fake
+
 
 def _load_config_file() -> dict:
     try:

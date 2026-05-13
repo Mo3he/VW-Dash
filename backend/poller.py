@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 # schedule coroutines onto it with run_coroutine_threadsafe.
 _main_loop: asyncio.AbstractEventLoop | None = None
 
+# Mock WeConnect instance — set when use_mock_weconnect=True
+_mock_weconnect = None
+
 
 def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
     global _main_loop
@@ -43,6 +46,10 @@ _wc_next_retry: datetime | None = None   # earliest time to retry after backoff
 
 # Serialize poll() so a scheduler tick and a manual trigger never overlap
 _poll_lock = threading.Lock()
+
+# Geocode jobs collected during a poll cycle, flushed after db.commit() so the
+# worker always sees committed end_lat/end_lon values.
+_pending_geocode: list[tuple[str, int]] = []
 
 # State carried between poll cycles to detect session boundaries
 _active_charging_session_id: int | None = None
@@ -71,6 +78,31 @@ _TRIP_MAX_DURATION_H = 24
 # --- Background geocoding queue ---
 _geo_queue: queue.Queue = queue.Queue()
 _geo_thread_started = False
+
+
+def _patch_weconnect_window() -> None:
+    """Monkey-patch AccessStatus.Window to capture windowOpen_pct without warning.
+
+    The VW API returns a numeric ``windowOpen_pct`` field alongside each window
+    object, but the weconnect library does not know about it and logs a WARNING
+    for every poll.  We intercept the update call, stash the value as a plain
+    Python attribute (``_open_pct``), and pass the rest to the original method.
+    """
+    try:
+        from weconnect.elements.access_status import AccessStatus
+        _orig = AccessStatus.Window.update
+
+        def _patched(self, fromDict):  # type: ignore[override]
+            self._open_pct = fromDict.get("windowOpen_pct")
+            _orig(self, {k: v for k, v in fromDict.items() if k != "windowOpen_pct"})
+
+        AccessStatus.Window.update = _patched  # type: ignore[method-assign]
+        logger.debug("Patched AccessStatus.Window to capture windowOpen_pct")
+    except Exception:
+        pass  # non-fatal: runs only when the real WeConnect library is available
+
+
+_patch_weconnect_window()
 
 
 def _geocoder_worker() -> None:
@@ -216,8 +248,20 @@ def _backoff_seconds(fail_count: int) -> float:
     return min(30 * (2 ** (fail_count - 1)), 600)
 
 
+def get_mock_weconnect():
+    """Return the active MockWeConnect instance, or None if not in mock mode."""
+    return _mock_weconnect
+
+
 def init_weconnect() -> None:
-    global _weconnect, _wc_fail_count, _wc_next_retry
+    global _weconnect, _wc_fail_count, _wc_next_retry, _mock_weconnect
+    if settings.use_mock_weconnect:
+        if _mock_weconnect is None:
+            from mock_weconnect import MockWeConnect
+            _mock_weconnect = MockWeConnect()
+            logger.info("Mock WeConnect active — scenario: %s", _mock_weconnect._scenario_name)
+        _weconnect = _mock_weconnect
+        return
     if not settings.vw_username or not settings.vw_password:
         logger.info("No VW credentials configured — skipping WeConnect login")
         return
@@ -249,7 +293,8 @@ def init_weconnect() -> None:
 def reset_weconnect() -> None:
     """Tear down the existing session and re-authenticate (called after credential change)."""
     global _weconnect, _wc_fail_count, _wc_next_retry
-    _weconnect = None
+    if not settings.use_mock_weconnect:
+        _weconnect = None
     _wc_fail_count = 0
     _wc_next_retry = None
     init_weconnect()
@@ -375,13 +420,33 @@ def _extract_snapshot(vehicle) -> dict:
             car_timestamps.append(ts) if (ts := _car_ts(clst)) else None
             data["cabin_temp_c"] = _safe_float(_val(clst, "targetTemperature_C"))
 
-        # Access — lock status: overallStatus is "safe" (locked) or "unsafe"
+        # Access — lock status and window open percentages
         ac = _domain(vehicle, "access", "accessStatus")
         if ac:
             car_timestamps.append(ts) if (ts := _car_ts(ac)) else None
             overall = _val(ac, "overallStatus")
             if overall is not None:
                 data["locked"] = str(overall).lower() == "safe"
+            # Capture per-window open percentage (requires _patch_weconnect_window)
+            windows_raw = _val(ac, "windows")
+            if windows_raw:
+                windows_data: dict = {}
+                for win_name, win_obj in windows_raw.items():
+                    entry: dict = {}
+                    open_pct = getattr(win_obj, "_open_pct", None)
+                    if open_pct is not None:
+                        entry["open_pct"] = open_pct
+                    # also capture the string state (OPEN / CLOSED / …)
+                    try:
+                        state_attr = getattr(win_obj, "openState", None)
+                        if state_attr and getattr(state_attr, "enabled", False):
+                            entry["state"] = str(state_attr.value.value)
+                    except Exception:
+                        pass
+                    if entry:
+                        windows_data[win_name] = entry
+                if windows_data:
+                    data["windows_json"] = json.dumps(windows_data)
 
         # Odometer  (domain: measurements)
         om = _domain(vehicle, "measurements", "odometerStatus")
@@ -487,7 +552,7 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
             _emit_event(db, "charging_ended", json.dumps({"soc_pct": snap.soc_pct, "kwh_added": session.kwh_added}))
             webhook.fire("charging_ended", {"session_id": session.id, "soc_pct": snap.soc_pct, "kwh_added": session.kwh_added})
             logger.info("Charging session %d ended (SOC %.0f%%)", session.id, snap.soc_pct or 0)
-            _queue_geocode("session", session.id)
+            _pending_geocode.append(("session", session.id))
         _active_charging_session_id = None
         _charging_glitch_polls = 0
         _charging_power_samples = []
@@ -532,7 +597,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
     _emit_event(db, "trip_ended", json.dumps({"distance_km": trip.distance_km, "kwh_used": trip.kwh_used}))
     webhook.fire("trip_ended", {"trip_id": trip.id, "distance_km": trip.distance_km, "kwh_used": trip.kwh_used})
     logger.info("Trip %d ended (%.1f km)", trip.id, trip.distance_km or 0)
-    _queue_geocode("trip", trip.id)
+    _pending_geocode.append(("trip", trip.id))
     _trip_point_count = 0
 
 
@@ -720,9 +785,16 @@ def _do_poll() -> None:
     except Exception as exc:
         logger.error("DB write failed: %s", exc)
         db.rollback()
+        _pending_geocode.clear()
         return
     finally:
         db.close()
+
+    # Dispatch geocode jobs only after the commit so the worker always sees
+    # committed end_lat/end_lon and end coordinates are not skipped.
+    for _geo_kind, _geo_id in _pending_geocode:
+        _queue_geocode(_geo_kind, _geo_id)
+    _pending_geocode.clear()
 
     payload = {
         "type": "snapshot",
@@ -737,6 +809,7 @@ def _do_poll() -> None:
         "target_soc_pct": snap.target_soc_pct,
         "plug_connected": snap.plug_connected,
         "locked": snap.locked,
+        "windows": json.loads(snap.windows_json) if snap.windows_json else None,
         "outdoor_temp_c": snap.outdoor_temp_c,
         "battery_temp_c": snap.battery_temp_c,
         "battery_temp_min_c": snap.battery_temp_min_c,

@@ -44,6 +44,7 @@ class VehicleSnapshot(Base):
     locked: Mapped[Optional[bool]] = mapped_column(Boolean)
     odometer_km: Mapped[Optional[float]] = mapped_column(Float)
     plug_connected: Mapped[Optional[bool]] = mapped_column(Boolean)
+    windows_json: Mapped[Optional[str]] = mapped_column(Text)  # JSON: {"frontLeft": {"open_pct": 0, "state": "closed"}, …}
 
     # Timestamps
     car_captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

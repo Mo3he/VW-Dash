@@ -100,6 +100,10 @@ export const api = {
       post<{ status: string; action: string; target_state: string }>(
         `/vehicle/climate?action=${action}`
       ),
+    chargingControl: (action: "start" | "stop") =>
+      post<{ status: string; action: string }>(
+        `/vehicle/charging-control?action=${action}`
+      ),
     poll: () => post<{ status: string }>("/vehicle/poll"),
   },
   charging: {

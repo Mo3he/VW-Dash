@@ -9,6 +9,7 @@ import StatusCard from "@/components/StatusCard";
 import SocHistory from "@/components/SocHistory";
 import EventsFeed from "@/components/EventsFeed";
 import VampireDrainCard from "@/components/VampireDrainCard";
+import WindowStatus from "@/components/WindowStatus";
 import { useVehicleLive } from "@/hooks/useVehicleLive";
 import type { VehicleSnapshot } from "@/lib/types";
 import { api } from "@/lib/api";
@@ -35,15 +36,16 @@ function chargingLabel(state: string | null) {
   return map[state] ?? state;
 }
 
-function climateLabel(state: string | null) {
+function climateLabel(state: string | null): string | null {
   if (!state) return null;
+  const s = state.toLowerCase();
+  if (s === "off" || s === "invalid") return null;
   const map: Record<string, string> = {
-    COOLING: "Cooling",
-    HEATING: "Heating",
-    OFF: null as unknown as string,
-    off: null as unknown as string,
+    heating: "Heating",
+    cooling: "Cooling",
+    ventilation: "Ventilating",
   };
-  return map[state] ?? (state === "OFF" || state === "off" ? null : state);
+  return map[s] ?? state;
 }
 
 function formatParkingDuration(parkingTime: string | null): string | null {
@@ -73,6 +75,8 @@ export default function DashboardClient({ initial: initialProp, history: history
 
   const [climateLoading, setClimateLoading] = useState(false);
   const [climateMsg, setClimateMsg] = useState<string | null>(null);
+  const [chargingControlLoading, setChargingControlLoading] = useState(false);
+  const [chargingControlMsg, setChargingControlMsg] = useState<string | null>(null);
   const [polling, setPolling] = useState(false);
 
   async function handleForcePoll() {
@@ -97,6 +101,7 @@ export default function DashboardClient({ initial: initialProp, history: history
   const chargeType = live?.charge_type ?? initial?.charge_type ?? null;
   const plugged = live?.plug_connected ?? initial?.plug_connected ?? null;
   const locked = live?.locked ?? initial?.locked ?? null;
+  const windows = live?.windows ?? initial?.windows ?? null;
   const batteryTempMinC = live?.battery_temp_min_c ?? initial?.battery_temp_min_c ?? null;
   const batteryTempMaxC = live?.battery_temp_max_c ?? initial?.battery_temp_max_c ?? null;
   // fallback to legacy average column for old snapshots that lack min/max
@@ -116,6 +121,30 @@ export default function DashboardClient({ initial: initialProp, history: history
     climatisationState !== "off" &&
     climatisationState !== "";
   const activeClimateLabel = climateLabel(climatisationState);
+
+  async function handleChargingControl(action: "start" | "stop") {
+    setChargingControlLoading(true);
+    setChargingControlMsg(null);
+    try {
+      await api.vehicle.chargingControl(action);
+      setChargingControlMsg(action === "start" ? "Charging started — refreshing in 30s…" : "Charging stopped — refreshing in 30s…");
+      setTimeout(async () => {
+        try {
+          await api.vehicle.poll();
+          const latest = await api.vehicle.latest().catch(() => null);
+          if (latest) setInitial(latest);
+          setChargingControlMsg(null);
+        } catch {
+          setChargingControlMsg(null);
+        }
+      }, 30_000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setChargingControlMsg(`Error: ${msg}`);
+    } finally {
+      setChargingControlLoading(false);
+    }
+  }
 
   async function handleClimate(action: "start" | "stop") {
     setClimateLoading(true);
@@ -250,21 +279,6 @@ export default function DashboardClient({ initial: initialProp, history: history
           }
         />
 
-
-
-        {isClimateActive && activeClimateLabel ? (
-          <StatusCard
-            label="Climate"
-            value={
-              <span className="flex items-center gap-1.5">
-                <Wind size={16} className="text-cyan-400" />
-                {activeClimateLabel}
-              </span>
-            }
-            sub={cabinTempC != null ? `Target ${cabinTempC.toFixed(1)}°C` : undefined}
-          />
-        ) : null}
-
         <StatusCard
           label="Battery temp"
           value={
@@ -301,44 +315,69 @@ export default function DashboardClient({ initial: initialProp, history: history
           }
           sub={formatParkingDuration(parkingTime) ?? undefined}
         />
-      </div>
 
-      {/* Climate control */}
-      <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4">
-        <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Climate control</div>
-        <div className="flex gap-3">
+        <StatusCard
+          label="Climate"
+          value={
+            isClimateActive && activeClimateLabel ? (
+              <span className="flex items-center gap-1.5">
+                <Wind size={16} className="text-cyan-400" />
+                {activeClimateLabel}
+              </span>
+            ) : (
+              <span className="text-gray-500">Off</span>
+            )
+          }
+          sub={isClimateActive && cabinTempC != null ? `Target ${cabinTempC.toFixed(1)}°C` : undefined}
+        />
+
+        {windows && Object.keys(windows).length > 0 && (
+          <WindowStatus windows={windows} />
+        )}
+
+        {/* Climate control */}
+        <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-3">
+          <div className="text-xs text-gray-500 uppercase tracking-wider">Climate control</div>
           <button
-            onClick={() => handleClimate("start")}
-            disabled={climateLoading || isClimateActive}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
-              bg-cyan-500/10 text-cyan-400 border border-cyan-500/20
-              hover:bg-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
-          >
-            <Wind size={15} />
-            Start AC
-          </button>
-          <button
-            onClick={() => handleClimate("stop")}
-            disabled={climateLoading || !isClimateActive}
-            className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
+            onClick={() => handleClimate(isClimateActive ? "stop" : "start")}
+            disabled={climateLoading}
+            className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
               disabled:opacity-40 disabled:cursor-not-allowed transition
               ${isClimateActive
                 ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20"
                 : "bg-gray-500/10 text-gray-300 border border-white/10 hover:bg-gray-500/20"}`}
           >
-            Stop AC
+            <Wind size={15} />
+            {isClimateActive ? "Stop AC" : "Start AC"}
           </button>
+          {climateMsg && (
+            <div className={`text-xs text-center ${climateMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+              {climateMsg}
+            </div>
+          )}
         </div>
-        {climateMsg && (
-          <div className={`mt-2 text-xs text-center ${climateMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
-            {climateMsg}
-          </div>
-        )}
-        {cabinTempC != null && (
-          <div className="mt-2 text-xs text-gray-500 text-center">
-            Target cabin temp: {cabinTempC.toFixed(1)}°C
-          </div>
-        )}
+
+        {/* Charging control */}
+        <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-3">
+          <div className="text-xs text-gray-500 uppercase tracking-wider">Charging control</div>
+          <button
+            onClick={() => handleChargingControl(isCharging ? "stop" : "start")}
+            disabled={chargingControlLoading || !plugged}
+            className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
+              disabled:opacity-40 disabled:cursor-not-allowed transition
+              ${isCharging
+                ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20"
+                : "bg-gray-500/10 text-gray-300 border border-white/10 hover:bg-gray-500/20"}`}
+          >
+            <Plug size={15} />
+            {isCharging ? "Stop Charging" : "Start Charging"}
+          </button>
+          {chargingControlMsg && (
+            <div className={`text-xs text-center ${chargingControlMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+              {chargingControlMsg}
+            </div>
+          )}
+        </div>
       </div>
 
       {history.length > 1 && <SocHistory initialData={history} />}
