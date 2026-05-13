@@ -111,9 +111,11 @@ class _MockControls:
             from weconnect.elements.control_operation import ControlOperation
             if op == ControlOperation.START:
                 self._state.charging_state = "CHARGING"
+                self._state.charge_type = "AC"
                 self._state.charge_power_kw = 11.0
             else:
                 self._state.charging_state = "readyForCharging"
+                self._state.charge_type = ""
                 self._state.charge_power_kw = None
 
         self.climatizationControl = _MockControl(_set_climate)
@@ -269,11 +271,13 @@ def _scenario_charging(state: MockVehicleState, tick: int) -> None:
         state.soc_pct = min(round(state.soc_pct + 1.0, 1), state.target_soc_pct)
         state.range_km = round(state.soc_pct / 100 * 410, 1)
         state.charging_state = "CHARGING"
+        state.charge_type = "AC"
         state.charge_power_kw = 11.0
         state.charge_rate_kmph = 65.0   # real API returns None when not charging
         state.remaining_charge_min = round((state.target_soc_pct - state.soc_pct) * 3.0)
     else:
         state.charging_state = "READY_FOR_CHARGING"
+        state.charge_type = ""
         state.charge_power_kw = 0.0   # real API returns 0.0 when done
         state.charge_rate_kmph = None  # real API returns None
         state.remaining_charge_min = 0
@@ -333,6 +337,7 @@ def _scenario_trip_then_charge(state: MockVehicleState, tick: int) -> None:
         # Charging
         if tick == 13:
             state.charging_state = "CHARGING"
+            state.charge_type = "AC"
             state.charge_power_kw = 11.0
             state.charge_rate_kmph = 65.0
         state.soc_pct = min(round(state.soc_pct + 2.0, 1), state.target_soc_pct)
@@ -340,6 +345,7 @@ def _scenario_trip_then_charge(state: MockVehicleState, tick: int) -> None:
         state.remaining_charge_min = round((state.target_soc_pct - state.soc_pct) * 3.0)
         if state.soc_pct >= state.target_soc_pct:
             state.charging_state = "READY_FOR_CHARGING"
+            state.charge_type = ""
             state.charge_power_kw = 0.0   # real API returns 0.0, not None
             state.charge_rate_kmph = None
             state.remaining_charge_min = 0
