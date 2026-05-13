@@ -549,6 +549,8 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
                 session.avg_power_kw = round(
                     sum(_charging_power_samples) / len(_charging_power_samples), 2
                 )
+                if session.peak_power_kw is None:
+                    session.peak_power_kw = round(max(_charging_power_samples), 2)
             _emit_event(db, "charging_ended", json.dumps({"soc_pct": snap.soc_pct, "kwh_added": session.kwh_added}))
             webhook.fire("charging_ended", {"session_id": session.id, "soc_pct": snap.soc_pct, "kwh_added": session.kwh_added})
             logger.info("Charging session %d ended (SOC %.0f%%)", session.id, snap.soc_pct or 0)

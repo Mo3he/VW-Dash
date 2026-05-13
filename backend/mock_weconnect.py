@@ -356,9 +356,40 @@ def _scenario_trip_then_charge(state: MockVehicleState, tick: int) -> None:
         state.charge_power_kw = 0.0
 
 
+def _scenario_dc_charging(state: MockVehicleState, tick: int) -> None:
+    """DC fast-charge: SoC climbs ~3%/tick with tapered power above 80%."""
+    if tick == 0:
+        state.soc_pct = 20.0
+        state.range_km = round(20.0 / 100 * 410, 1)
+        state.plug_connected = True
+        state.parking_time = datetime.now(timezone.utc)
+        state.latitude = 55.718715
+        state.longitude = 13.21968
+
+    if state.soc_pct < state.target_soc_pct:
+        state.soc_pct = min(round(state.soc_pct + 3.0, 1), state.target_soc_pct)
+        state.range_km = round(state.soc_pct / 100 * 410, 1)
+        state.charging_state = "CHARGING"
+        state.charge_type = "DC"
+        # Taper power above 80% SoC (realistic DC curve)
+        if state.soc_pct <= 80:
+            state.charge_power_kw = 100.0
+        else:
+            state.charge_power_kw = max(20.0, round(100.0 * (1 - (state.soc_pct - 80) / 20), 1))
+        state.charge_rate_kmph = round(state.charge_power_kw * 6.0, 1)
+        state.remaining_charge_min = round((state.target_soc_pct - state.soc_pct) * 1.0)
+    else:
+        state.charging_state = "READY_FOR_CHARGING"
+        state.charge_type = ""
+        state.charge_power_kw = 0.0
+        state.charge_rate_kmph = None
+        state.remaining_charge_min = 0
+
+
 SCENARIOS: dict[str, Any] = {
     "parked": _scenario_parked,
     "charging": _scenario_charging,
+    "dc_charging": _scenario_dc_charging,
     "driving": _scenario_driving,
     "trip_then_charge": _scenario_trip_then_charge,
 }
