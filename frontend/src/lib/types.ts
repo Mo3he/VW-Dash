@@ -192,6 +192,7 @@ export interface WsMessage {
   battery_temp_max_c: number | null;
   cabin_temp_c: number | null;
   climatisation_state: string | null;
+  windows: Record<string, { open_pct?: number; state?: string }> | null;
   recorded_at: string;
   car_captured_at: string | null;
 }
