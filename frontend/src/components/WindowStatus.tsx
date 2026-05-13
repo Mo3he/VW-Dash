@@ -44,6 +44,7 @@ export default function WindowStatus({ windows }: Props) {
       <div className="flex items-center gap-1 flex-wrap">
         {Object.entries(windows).map(([key, entry]) => {
           const open = isOpen(entry);
+          if (!open) return null;
           const label = WINDOW_LABELS[key] ?? key;
           const pct = entry.open_pct;
           const detail = pct != null && pct > 0 ? ` ${pct}%` : "";
@@ -51,12 +52,8 @@ export default function WindowStatus({ windows }: Props) {
           return (
             <span
               key={key}
-              title={`${key}: ${pct != null ? `${pct}%` : open ? "open" : "closed"}`}
-              className={`text-xs px-1.5 py-0.5 rounded-full ${
-                open
-                  ? "bg-yellow-500/15 text-yellow-400"
-                  : "bg-white/5 text-gray-500"
-              }`}
+              title={`${key}: ${pct != null ? `${pct}%` : "open"}`}
+              className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400"
             >
               {label}{detail}
             </span>
