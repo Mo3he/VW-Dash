@@ -49,6 +49,17 @@ export default function EfficiencyChart({ trips }: Props) {
     distance: t.distance_km,
   }));
 
+  const xTicks = (() => {
+    if (points.length === 0) return [];
+    const minTs = points[0].ts;
+    const maxTs = points[points.length - 1].ts;
+    const interval = 24 * 3600 * 1000;
+    const start = Math.ceil(minTs / interval) * interval;
+    const result: number[] = [];
+    for (let t = start; t <= maxTs; t += interval) result.push(t);
+    return result;
+  })();
+
   const avg =
     points.reduce((sum, p) => sum + (p.efficiency ?? 0), 0) / points.length;
 
@@ -75,10 +86,10 @@ export default function EfficiencyChart({ trips }: Props) {
             type="number"
             scale="time"
             domain={["dataMin", "dataMax"]}
+            ticks={xTicks}
             tick={{ fill: "#6b7280", fontSize: 10 }}
             tickLine={false}
             axisLine={false}
-            tickCount={5}
             tickFormatter={(v: number) => fmtDate(new Date(v).toISOString(), tz)}
           />
           <YAxis

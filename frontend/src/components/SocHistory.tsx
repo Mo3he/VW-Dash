@@ -49,7 +49,10 @@ export default function SocHistory({ initialData }: Props) {
   };
 
   useEffect(() => {
-    api.vehicle.historyByRange(range.start, range.end).then(setData).catch(() => {});
+    const fetch = range.preset === 1
+      ? api.vehicle.history(24)
+      : api.vehicle.historyByRange(range.start, range.end);
+    fetch.then(setData).catch(() => {});
   }, [range]);
 
   const sampled = downsample(data, 1000);
@@ -64,6 +67,17 @@ export default function SocHistory({ initialData }: Props) {
         : Math.round(s.range_km)
       : null,
   }));
+
+  const xTicks = (() => {
+    if (points.length === 0) return [];
+    const minTs = points[0].ts;
+    const maxTs = points[points.length - 1].ts;
+    const interval = useTime ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+    const start = Math.ceil(minTs / interval) * interval;
+    const result: number[] = [];
+    for (let t = start; t <= maxTs; t += interval) result.push(t);
+    return result;
+  })();
 
   const hasRange = points.some((p) => p.range_km != null);
 
@@ -98,10 +112,10 @@ export default function SocHistory({ initialData }: Props) {
               type="number"
               scale="time"
               domain={["dataMin", "dataMax"]}
+              ticks={xTicks}
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
-              tickCount={5}
               tickFormatter={(v: number) =>
                 useTime
                   ? fmtChartTime(new Date(v).toISOString(), tz, hour12)

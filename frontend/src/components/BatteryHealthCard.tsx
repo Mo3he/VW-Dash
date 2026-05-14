@@ -37,6 +37,17 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
     consumption: h.consumption_kwh_100km ?? undefined,
   }));
 
+  const xTicks = (() => {
+    if (points.length === 0) return [];
+    const minTs = points[0].ts;
+    const maxTs = points[points.length - 1].ts;
+    const interval = 24 * 3600 * 1000;
+    const start = Math.ceil(minTs / interval) * interval;
+    const result: number[] = [];
+    for (let t = start; t <= maxTs; t += interval) result.push(t);
+    return result;
+  })();
+
   const ratedInUnit = toUnit(data.rated_range_km);
 
   const rangeVals = points.map((p) => p.range);
@@ -76,10 +87,10 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
             type="number"
             scale="time"
             domain={["dataMin", "dataMax"]}
+            ticks={xTicks}
             tick={{ fill: "#6b7280", fontSize: 10 }}
             tickLine={false}
             axisLine={false}
-            tickCount={5}
             tickFormatter={(v: number) => fmtDate(new Date(v).toISOString(), tz)}
           />
           {/* Left Y: range */}
