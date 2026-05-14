@@ -72,7 +72,7 @@ export default function SocHistory({ initialData }: Props) {
     if (points.length === 0) return [];
     const minTs = points[0].ts;
     const maxTs = points[points.length - 1].ts;
-    const interval = useTime ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+    const interval = useTime ? 3600 * 1000 : 24 * 3600 * 1000;
     const start = Math.ceil(minTs / interval) * interval;
     const result: number[] = [];
     for (let t = start; t <= maxTs; t += interval) result.push(t);
