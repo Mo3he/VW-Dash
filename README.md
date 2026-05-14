@@ -233,6 +233,12 @@ VW-Dash/
 - **Database**: SQLite
 - **Geocoding**: OpenStreetMap Nominatim (free, no API key)
 
+## Acknowledgements
+
+VW API access is powered by [weconnect-python](https://github.com/tillsteinbach/WeConnect-python) by [Tillman Schwabe (@tillsteinbach)](https://github.com/tillsteinbach). Without his work reverse-engineering the WeConnect API this project would not be possible.
+
+weconnect-python is licensed under the MIT License. Copyright (c) 2021 Till Steinbach.
+
 ## License
 
 MIT
