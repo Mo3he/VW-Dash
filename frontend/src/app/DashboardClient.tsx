@@ -30,7 +30,8 @@ function chargingLabel(state: string | null) {
     readyForCharging: "Plugged in",
     READY_FOR_CHARGING: "Plugged in",
     NOT_READY_FOR_CHARGING: "Not charging",
-    CHARGE_PURPOSE_REACHED_NOT_CONSERVATION_MODE: "Charge complete",
+    CHARGE_PURPOSE_REACHED_NOT_CONSERVATION_MODE: "Not charging",
+    chargePurposeReachedAndNotConservationCharging: "Not charging",
     CONSERVATION: "Conservation mode",
     OFF: "Not charging",
   };
@@ -263,7 +264,7 @@ export default function DashboardClient({ initial: initialProp, history: history
             </span>
           }
           accent={isCharging}
-          sub={chargeType && isCharging ? chargeType : undefined}
+          sub={chargeType && isCharging ? chargeType.toUpperCase() : undefined}
         />
 
         <StatusCard
@@ -363,7 +364,7 @@ export default function DashboardClient({ initial: initialProp, history: history
           <div className="text-xs text-gray-500 uppercase tracking-wider">Charging control</div>
           <button
             onClick={() => handleChargingControl(isCharging ? "stop" : "start")}
-            disabled={chargingControlLoading || !plugged}
+            disabled={chargingControlLoading || (!plugged && !isCharging)}
             className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
               disabled:opacity-40 disabled:cursor-not-allowed transition
               ${isCharging

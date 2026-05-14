@@ -149,12 +149,12 @@ export default function ChargingSessionList({ sessions, total, chargers, onSessi
                   <span
                     className={clsx(
                       "text-xs px-2 py-0.5 rounded-full font-medium",
-                      s.charge_type === "DC"
+                      (s.charge_type ?? "AC").toUpperCase() === "DC"
                         ? "bg-yellow-400/10 text-yellow-400"
                         : "bg-[#00B0F0]/10 text-[#00B0F0]"
                     )}
                   >
-                    {s.charge_type ?? "AC"}
+                    {(s.charge_type ?? "AC").toUpperCase()}
                   </span>
                 )}
                 {!isEditing ? (

@@ -67,6 +67,7 @@ _prev_plug_connected: bool | None = None
 _prev_parking_time: datetime | None = None   # carCapturedTimestamp from last poll
 _prev_lat: float | None = None               # last known parked latitude
 _prev_lon: float | None = None               # last known parked longitude
+_prev_soc_pct: float | None = None           # last known parked SoC %
 _parking_time_unchanged_polls: int = 0       # consecutive polls with same parking_time
 
 # Maximum breadcrumbs per trip before we stop recording (prevents unbounded growth)
@@ -155,7 +156,7 @@ def _emit_event(db: Session, event_type: str, detail: str | None = None) -> None
 def init_state_from_db() -> None:
     """Recover in-memory trip/charging state from the DB after a restart."""
     global _active_trip_id, _trip_start_odometer, _active_charging_session_id, _prev_odometer
-    global _trip_point_count, _prev_parking_time, _prev_lat, _prev_lon
+    global _trip_point_count, _prev_parking_time, _prev_lat, _prev_lon, _prev_soc_pct
     global _prev_locked, _prev_plug_connected, _prev_climatisation_state
 
     db = SessionLocal()
@@ -231,6 +232,7 @@ def init_state_from_db() -> None:
             # the first poll just establishes the baseline state safely.
             _prev_lat = last_snap.latitude
             _prev_lon = last_snap.longitude
+            _prev_soc_pct = last_snap.soc_pct
             # Seed event-detection baselines so the first post-restart poll
             # doesn't create a blind spot where a lock/unlock/plug/climate
             # change goes undetected.
@@ -605,7 +607,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
 
 def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     global _active_trip_id, _prev_odometer, _trip_start_odometer, _trip_point_count
-    global _prev_parking_time, _prev_lat, _prev_lon, _parking_time_unchanged_polls
+    global _prev_parking_time, _prev_lat, _prev_lon, _prev_soc_pct, _parking_time_unchanged_polls
 
     odometer = snap.odometer_km
     charging = (snap.charging_state or "").upper() == "CHARGING"
@@ -668,9 +670,10 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             # trip origin (current snap may have no GPS since the car just moved)
             start_lat = _prev_lat if parking_disappeared else snap.latitude
             start_lon = _prev_lon if parking_disappeared else snap.longitude
+            start_soc = _prev_soc_pct if parking_disappeared else snap.soc_pct
             trip = Trip(
                 started_at=snap.recorded_at,
-                soc_start_pct=snap.soc_pct,
+                soc_start_pct=start_soc,
                 range_km_start=snap.range_km,
                 start_lat=start_lat,
                 start_lon=start_lon,
@@ -682,9 +685,9 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             _trip_start_odometer = odometer
             _trip_point_count = 0
             trigger = "parking_disappeared" if parking_disappeared else ("stale_parking" if should_start_stale_parking else "odometer")
-            logger.info("Trip %d started (trigger=%s, soc=%.0f%%)", trip.id, trigger, snap.soc_pct or 0)
-            _emit_event(db, "trip_started", json.dumps({"soc_pct": snap.soc_pct}))
-            webhook.fire("trip_started", {"trip_id": trip.id, "soc_pct": snap.soc_pct})
+            logger.info("Trip %d started (trigger=%s, soc=%.0f%%)", trip.id, trigger, start_soc or 0)
+            _emit_event(db, "trip_started", json.dumps({"soc_pct": start_soc}))
+            webhook.fire("trip_started", {"trip_id": trip.id, "soc_pct": start_soc})
 
     # --- BREADCRUMBS ---
     elif _active_trip_id is not None and not definitely_parked and not parking_appeared:
@@ -713,6 +716,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     if parking_time is not None:
         _prev_lat = snap.latitude
         _prev_lon = snap.longitude
+        _prev_soc_pct = snap.soc_pct
 
 
 def _update_misc_events(db: Session, snap: VehicleSnapshot) -> None:

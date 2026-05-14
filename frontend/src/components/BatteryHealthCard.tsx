@@ -134,7 +134,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
             dot={false}
             activeDot={{ r: 4 }}
             isAnimationActive={false}
-            connectNulls={false}
+            connectNulls={true}
           />
         </ComposedChart>
       </ResponsiveContainer>
