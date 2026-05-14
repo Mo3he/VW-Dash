@@ -165,6 +165,26 @@ Replaced all `f'{{"key": {value}}}'` f-strings in `_update_charging_session` and
 2. Set a `SECRET_KEY` env var so the rotated password is encrypted on disk.
 3. Set an `access_token` in Settings if exposing beyond a trusted LAN.
 
+---
+
+## Roadmap
+
+### 🔴 CarConnectivity migration (blocked on weconnect-python EOL)
+
+`weconnect-python` is deprecated and unmaintained. The replacement is `carconnectivity` + `carconnectivity-connector-volkswagen`. Full research and field-mapping notes are in [CARCONNECTIVITY_MIGRATION.md](CARCONNECTIVITY_MIGRATION.md).
+
+**Scope of change:**
+
+| File | Change needed |
+|---|---|
+| `backend/requirements.txt` | Remove `weconnect[Images]`; add `carconnectivity` + `carconnectivity-connector-volkswagen` |
+| `backend/poller.py` | Replace init, vehicle access, `_extract_snapshot()`, remove `_patch_weconnect_window()` |
+| `backend/routers/vehicle.py` | Replace climate/charging control commands |
+| `backend/mock_weconnect.py` | Rewrite to implement CarConnectivity interface |
+
+**Known breaking change:** window open percentage is not available in CarConnectivity — only OPEN/CLOSED state. `windows_json` storage and the `WindowStatus` UI component will need to be adapted.
+
+**Status:** Research complete (2026-05-14). API tested against real vehicle. Ready to implement.
 
 ---
 

@@ -233,6 +233,21 @@ VW-Dash/
 - **Database**: SQLite
 - **Geocoding**: OpenStreetMap Nominatim (free, no API key)
 
+## Roadmap
+
+### CarConnectivity migration
+
+`weconnect-python` is deprecated and unmaintained. The replacement library is [`carconnectivity`](https://github.com/tillsteinbach/CarConnectivity) + [`carconnectivity-connector-volkswagen`](https://github.com/tillsteinbach/CarConnectivity-connector-volkswagen), both by the same author. The new API has been tested against a real vehicle and all key fields confirmed. See [docs/CARCONNECTIVITY_MIGRATION.md](docs/CARCONNECTIVITY_MIGRATION.md) for the full field-mapping reference.
+
+**Known breaking change:** window open percentage is not available in the new API (only OPEN/CLOSED per window).
+
+### Other planned improvements
+
+- Alembic-managed schema migrations (currently raw `ALTER TABLE` in `main.py`)
+- Multi-vehicle support
+- Battery state-of-health estimate from charge curve data
+- Docker secret / `_FILE` env var support for VW password
+
 ## Acknowledgements
 
 VW API access is powered by [weconnect-python](https://github.com/tillsteinbach/WeConnect-python) by [Tillman Schwabe (@tillsteinbach)](https://github.com/tillsteinbach). Without his work reverse-engineering the WeConnect API this project would not be possible.
