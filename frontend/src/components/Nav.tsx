@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BatteryCharging, Car, MapPin, Settings, Route, LogOut, Sun, Moon, Github, Coffee, BarChart2 } from "lucide-react";
+import { BatteryCharging, Car, MapPin, Settings, Route, LogOut, Sun, Moon, Github, Coffee, BarChart2, ArrowUpCircle } from "lucide-react";
 import clsx from "clsx";
 import { useVehicleName } from "@/app/SettingsProvider";
 import { authHeaders, clearAuth, getUsername } from "@/lib/auth";
@@ -22,6 +22,7 @@ export default function Nav() {
   const router = useRouter();
   const vehicleName = useVehicleName();
   const [version, setVersion] = useState<string | null>(null);
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
   const theme = useTheme();
   const toggleTheme = useToggleTheme();
@@ -38,9 +39,18 @@ export default function Nav() {
   useEffect(() => {
     fetch("/api/version", { headers: authHeaders() })
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => d && setVersion(d.version ?? null))
+      .then((d) => {
+        if (!d) return;
+        setVersion(d.version ?? null);
+        setLatestVersion(d.latest_version ?? null);
+      })
       .catch(() => {});
   }, []);
+
+  const hasUpdate =
+    version != null &&
+    latestVersion != null &&
+    latestVersion !== version;
 
   return (
     <>
@@ -55,6 +65,18 @@ export default function Nav() {
         )}
         {version && (
           <span className="text-white/20 text-[10px] font-mono">v{version}</span>
+        )}
+        {hasUpdate && (
+          <a
+            href="https://github.com/Mo3he/VW-Dash/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Update available: v${latestVersion}`}
+            className="flex items-center gap-1 text-[10px] font-medium text-yellow-400 hover:text-yellow-300 transition-colors"
+          >
+            <ArrowUpCircle size={13} />
+            v{latestVersion}
+          </a>
         )}
         <div className="ml-auto flex items-center gap-2">
           {username && (

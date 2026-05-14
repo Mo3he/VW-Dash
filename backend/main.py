@@ -209,9 +209,23 @@ def health():
 @app.get("/api/version")
 def version():
     import json as _json
+    import urllib.request as _req
     pkg = os.path.join(os.path.dirname(__file__), "..", "frontend", "package.json")
+    current = "unknown"
     try:
         with open(pkg) as f:
-            return {"version": _json.load(f).get("version", "unknown")}
+            current = _json.load(f).get("version", "unknown")
     except Exception:
-        return {"version": "unknown"}
+        pass
+    latest = None
+    try:
+        with _req.urlopen(
+            "https://api.github.com/repos/Mo3he/VW-Dash/releases/latest",
+            timeout=5,
+        ) as resp:
+            data = _json.loads(resp.read())
+            tag = data.get("tag_name", "")
+            latest = tag.lstrip("v") if tag else None
+    except Exception:
+        pass
+    return {"version": current, "latest_version": latest}
