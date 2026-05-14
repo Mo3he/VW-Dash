@@ -44,7 +44,7 @@ export default function EfficiencyChart({ trips }: Props) {
   const ordered = downsample(filtered, 100);
 
   const points = ordered.map((t) => ({
-    date: fmtDate(t.started_at, tz),
+    ts: new Date(t.started_at).getTime(),
     efficiency: t.efficiency_kwh_100km,
     distance: t.distance_km,
   }));
@@ -71,11 +71,15 @@ export default function EfficiencyChart({ trips }: Props) {
             </linearGradient>
           </defs>
           <XAxis
-            dataKey="date"
+            dataKey="ts"
+            type="number"
+            scale="time"
+            domain={["dataMin", "dataMax"]}
             tick={{ fill: "#6b7280", fontSize: 10 }}
             tickLine={false}
             axisLine={false}
-            interval="preserveStartEnd"
+            tickCount={5}
+            tickFormatter={(v: number) => fmtDate(new Date(v).toISOString(), tz)}
           />
           <YAxis
             tick={{ fill: "#6b7280", fontSize: 10 }}
@@ -105,6 +109,7 @@ export default function EfficiencyChart({ trips }: Props) {
             dot={{ r: 3, fill: "#34d399", strokeWidth: 0 }}
             activeDot={{ r: 5 }}
             isAnimationActive={false}
+            connectNulls
           />
         </AreaChart>
       </ResponsiveContainer>

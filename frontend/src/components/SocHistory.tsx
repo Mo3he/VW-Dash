@@ -56,7 +56,7 @@ export default function SocHistory({ initialData }: Props) {
   const useTime = daysBetween(range) <= 2;
 
   const points = sampled.map((s) => ({
-    label: useTime ? fmtChartTime(s.recorded_at, tz, hour12) : fmtDate(s.recorded_at, tz),
+    ts: new Date(s.recorded_at).getTime(),
     soc: s.soc_pct,
     range_km: s.range_km != null
       ? distanceUnit === "miles"
@@ -94,11 +94,19 @@ export default function SocHistory({ initialData }: Props) {
               </linearGradient>
             </defs>
             <XAxis
-              dataKey="label"
+              dataKey="ts"
+              type="number"
+              scale="time"
+              domain={["dataMin", "dataMax"]}
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
-              interval="preserveStartEnd"
+              tickCount={5}
+              tickFormatter={(v: number) =>
+                useTime
+                  ? fmtChartTime(new Date(v).toISOString(), tz, hour12)
+                  : fmtDate(new Date(v).toISOString(), tz)
+              }
             />
             <YAxis
               yAxisId="soc"
@@ -122,6 +130,11 @@ export default function SocHistory({ initialData }: Props) {
             )}
             <Tooltip
               contentStyle={tooltipStyle}
+              labelFormatter={(v: number) =>
+                useTime
+                  ? fmtChartTime(new Date(v).toISOString(), tz, hour12)
+                  : fmtDate(new Date(v).toISOString(), tz)
+              }
               formatter={(val: number, key: string) =>
                 key === "soc" ? [`${val}%`, "SoC"] : [`${val} ${distanceUnit === "miles" ? "mi" : "km"}`, "Range"]
               }
@@ -135,6 +148,7 @@ export default function SocHistory({ initialData }: Props) {
               fill="url(#socGrad)"
               dot={false}
               isAnimationActive={false}
+              connectNulls
             />
             {hasRange && (
               <Line

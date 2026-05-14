@@ -31,6 +31,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
   const unitLabel = distanceUnit === "miles" ? "mi" : "km";
 
   const points = data.history.map((h) => ({
+    ts: new Date(h.date).getTime(),
     date: fmtDate(h.date, tz),
     range: toUnit(h.range_km),
     consumption: h.consumption_kwh_100km ?? undefined,
@@ -71,11 +72,15 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
       <ResponsiveContainer width="100%" height={180}>
         <ComposedChart data={points} margin={{ top: 4, right: 0, left: -16, bottom: 0 }}>
           <XAxis
-            dataKey="date"
+            dataKey="ts"
+            type="number"
+            scale="time"
+            domain={["dataMin", "dataMax"]}
             tick={{ fill: "#6b7280", fontSize: 10 }}
             tickLine={false}
             axisLine={false}
-            interval="preserveStartEnd"
+            tickCount={5}
+            tickFormatter={(v: number) => fmtDate(new Date(v).toISOString(), tz)}
           />
           {/* Left Y: range */}
           <YAxis
@@ -109,6 +114,7 @@ export default function RangeHealthCard({ data }: { data: RangeHealth }) {
           />
           <Tooltip
             contentStyle={{ background: "#1e2535", border: "none", borderRadius: 8, fontSize: 12 }}
+            labelFormatter={(v: number) => fmtDate(new Date(v).toISOString(), tz)}
             formatter={(val: number, name: string) =>
               name === "range"
                 ? [`${val} ${unitLabel}`, `Range @ 100%`]
