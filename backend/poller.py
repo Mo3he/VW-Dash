@@ -570,6 +570,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
     trip.soc_end_pct = snap.soc_pct
     trip.end_lat = snap.latitude
     trip.end_lon = snap.longitude
+    trip.odometer_end_km = odometer
     dist: float | None = None
     if odometer and _trip_start_odometer:
         raw_dist = odometer - _trip_start_odometer
@@ -671,6 +672,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             start_lat = _prev_lat if parking_disappeared else snap.latitude
             start_lon = _prev_lon if parking_disappeared else snap.longitude
             start_soc = _prev_soc_pct if parking_disappeared else snap.soc_pct
+            start_odo = _prev_odometer if parking_disappeared else odometer
             trip = Trip(
                 started_at=snap.recorded_at,
                 soc_start_pct=start_soc,
@@ -678,11 +680,15 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
                 start_lat=start_lat,
                 start_lon=start_lon,
                 outdoor_temp_c=snap.outdoor_temp_c,
+                odometer_start_km=start_odo,
             )
             db.add(trip)
             db.flush()
             _active_trip_id = trip.id
-            _trip_start_odometer = odometer
+            # When parking_disappeared, the current odometer may already be mid-drive
+            # (car has been moving since the last poll). Use _prev_odometer — the value
+            # from the last parked poll — as the true trip start, same as we do for lat/lon/soc.
+            _trip_start_odometer = start_odo
             _trip_point_count = 0
             trigger = "parking_disappeared" if parking_disappeared else ("stale_parking" if should_start_stale_parking else "odometer")
             logger.info("Trip %d started (trigger=%s, soc=%.0f%%)", trip.id, trigger, start_soc or 0)

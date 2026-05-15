@@ -94,6 +94,8 @@ class Trip(Base):
 
     distance_km: Mapped[Optional[float]] = mapped_column(Float)
     distance_miles: Mapped[Optional[float]] = mapped_column(Float)
+    odometer_start_km: Mapped[Optional[float]] = mapped_column(Float)
+    odometer_end_km: Mapped[Optional[float]] = mapped_column(Float)
     soc_start_pct: Mapped[Optional[float]] = mapped_column(Float)
     soc_end_pct: Mapped[Optional[float]] = mapped_column(Float)
     kwh_used: Mapped[Optional[float]] = mapped_column(Float)

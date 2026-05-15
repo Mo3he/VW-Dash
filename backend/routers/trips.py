@@ -34,6 +34,8 @@ class TripUpdate(BaseModel):
     distance_km: Optional[float] = None
     soc_start_pct: Optional[float] = None
     soc_end_pct: Optional[float] = None
+    odometer_start_km: Optional[float] = None
+    odometer_end_km: Optional[float] = None
 
 
 @router.post("", status_code=201)
@@ -343,6 +345,21 @@ def update_trip(trip_id: int, body: TripUpdate, db: Session = Depends(get_db)):
         trip.soc_start_pct = body.soc_start_pct
     if body.soc_end_pct is not None:
         trip.soc_end_pct = body.soc_end_pct
+    if body.odometer_start_km is not None:
+        trip.odometer_start_km = body.odometer_start_km
+    if body.odometer_end_km is not None:
+        trip.odometer_end_km = body.odometer_end_km
+    # If odometer values are set and no explicit distance was given, derive distance from them
+    if (
+        body.distance_km is None
+        and body.odometer_end_km is not None
+        and trip.odometer_start_km is not None
+        and trip.odometer_end_km is not None
+        and trip.odometer_end_km > trip.odometer_start_km
+    ):
+        dist = round(trip.odometer_end_km - trip.odometer_start_km, 2)
+        trip.distance_km = dist
+        trip.distance_miles = round(dist * 0.621371, 2)
     # Recompute efficiency if we have enough data
     if trip.distance_km and trip.soc_start_pct and trip.soc_end_pct and trip.soc_start_pct > trip.soc_end_pct:
         kwh = round((trip.soc_start_pct - trip.soc_end_pct) / 100 * settings.battery_capacity_kwh, 2)
@@ -388,4 +405,6 @@ def _trip_to_dict(t: Trip) -> dict:
         "outdoor_temp_f": round(t.outdoor_temp_c * 9 / 5 + 32, 1) if t.outdoor_temp_c else None,
         "start_address": t.start_address,
         "end_address": t.end_address,
+        "odometer_start_km": t.odometer_start_km,
+        "odometer_end_km": t.odometer_end_km,
     }

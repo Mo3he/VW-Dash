@@ -137,7 +137,7 @@ export const api = {
     journeys: (start: string, end: string) =>
       get<Journey[]>(`/trips/journeys?start_date=${start}&end_date=${end}`),
     delete: (id: number) => del(`/trips/${id}`),
-    update: (id: number, body: { start_address?: string | null; end_address?: string | null; distance_km?: number; soc_start_pct?: number; soc_end_pct?: number }) =>
+    update: (id: number, body: { start_address?: string | null; end_address?: string | null; distance_km?: number; soc_start_pct?: number; soc_end_pct?: number; odometer_start_km?: number; odometer_end_km?: number }) =>
       patch<Trip>(`/trips/${id}`, body),
     create: (body: {
       started_at: string; ended_at: string; distance_km: number;

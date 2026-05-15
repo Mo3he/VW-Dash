@@ -77,6 +77,8 @@ export interface Trip {
   outdoor_temp_f: number | null;
   start_address: string | null;
   end_address: string | null;
+  odometer_start_km: number | null;
+  odometer_end_km: number | null;
 }
 
 export interface ChargeLocation {

@@ -22,6 +22,8 @@ interface EditState {
   distance_km: string;
   soc_start_pct: string;
   soc_end_pct: string;
+  odometer_start_km: string;
+  odometer_end_km: string;
 }
 
 function formatDuration(min: number | null) {
@@ -63,6 +65,8 @@ export default function TripList({ trips, total, onDelete, onUpdate }: Props) {
       distance_km: t.distance_km?.toString() ?? "",
       soc_start_pct: t.soc_start_pct?.toString() ?? "",
       soc_end_pct: t.soc_end_pct?.toString() ?? "",
+      odometer_start_km: t.odometer_start_km?.toString() ?? "",
+      odometer_end_km: t.odometer_end_km?.toString() ?? "",
     });
     setSaveError(null);
   }
@@ -87,6 +91,8 @@ export default function TripList({ trips, total, onDelete, onUpdate }: Props) {
       if (editState.distance_km) body.distance_km = parseFloat(editState.distance_km);
       if (editState.soc_start_pct) body.soc_start_pct = parseFloat(editState.soc_start_pct);
       if (editState.soc_end_pct) body.soc_end_pct = parseFloat(editState.soc_end_pct);
+      if (editState.odometer_start_km) body.odometer_start_km = parseFloat(editState.odometer_start_km);
+      if (editState.odometer_end_km) body.odometer_end_km = parseFloat(editState.odometer_end_km);
       const updated = await api.trips.update(t.id, body);
       onUpdate?.(updated);
       setEditingId(null);
@@ -247,6 +253,30 @@ export default function TripList({ trips, total, onDelete, onUpdate }: Props) {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-xs text-gray-500 block mb-1">Odo start (km)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={editState.odometer_start_km}
+                    onChange={(e) => setEditState({ ...editState, odometer_start_km: e.target.value })}
+                    className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white w-full"
+                  />
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 block mb-1">Odo end (km)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={editState.odometer_end_km}
+                    onChange={(e) => setEditState({ ...editState, odometer_end_km: e.target.value })}
+                    className="rounded-lg bg-[#0d1117] border border-white/10 px-2 py-1.5 text-sm text-white w-full"
+                  />
+                </div>
+              </div>
               {saveError && <div className="text-xs text-red-400">{saveError}</div>}
             </div>
           ) : (
@@ -314,6 +344,20 @@ export default function TripList({ trips, total, onDelete, onUpdate }: Props) {
               <div className="text-xs text-gray-500 mt-0.5">Avg speed</div>
             </div>
           </div>
+
+          {/* Odometer row */}
+          {(t.odometer_start_km != null || t.odometer_end_km != null) && (
+            <div className="text-center mt-2">
+              <div className="text-xs text-gray-500">
+                Odometer:{" "}
+                <span className="text-gray-300">
+                  {t.odometer_start_km != null ? `${Math.round(t.odometer_start_km).toLocaleString()} km` : "—"}
+                  <span className="text-gray-600 mx-1">→</span>
+                  {t.odometer_end_km != null ? `${Math.round(t.odometer_end_km).toLocaleString()} km` : "—"}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-between mt-2">
             {t.duration_min != null ? (
