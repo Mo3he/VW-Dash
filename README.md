@@ -1,6 +1,8 @@
 # VW-Dash
 
-A self-hosted dashboard for VW ID. series electric vehicles (ID.3, ID.4, ID.7, and other WeConnect-compatible models) that tracks battery state, trips, charging sessions, and more — with live WebSocket updates.
+A self-hosted dashboard for VW ID. series electric vehicles (ID.3, ID.4, ID.7, and other WeConnect-compatible models) that tracks battery state, trips, charging sessions, and more, with live WebSocket updates.
+
+> **Note:** VW-Dash relies on the WeConnect API, which is only available in Europe. It will not work with VW accounts registered outside of Europe.
 
 ## Features
 
