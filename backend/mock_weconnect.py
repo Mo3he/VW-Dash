@@ -39,95 +39,194 @@ from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Internal attribute wrapper — mirrors how weconnect wraps values in objects
-# with a .value property that _val() and _car_ts() unwrap.
+# Attribute wrappers matching the carconnectivity interface used by poller.py
 # ---------------------------------------------------------------------------
 
 class _Attr:
-    """Wraps any value so that accessing .value returns it."""
-    __slots__ = ("value",)
+    """Read-only attribute with .value and .last_updated."""
+    __slots__ = ("value", "last_updated")
 
-    def __init__(self, v: Any) -> None:
-        self.value = v
-
-
-class _Status:
-    """
-    Generic mock status object.  Set attributes directly; each attribute should
-    either be a plain value (for _val()) or wrapped in _Attr (for _car_ts()).
-    """
-    pass
+    def __init__(self, value: Any = None) -> None:
+        self.value = value
+        self.last_updated = datetime.now(timezone.utc)
 
 
-class _MockWindow:
-    """Mimics a (patched) weconnect AccessStatus.Window for window-status reading."""
+class _Cmd:
+    """Command attribute: assigning .value triggers the callback."""
 
-    def __init__(self, open_pct: int) -> None:
-        self._open_pct = open_pct
-        # Build a minimal openState chain: .enabled / .value.value
-        _state_val = "closed" if open_pct == 0 else "open"
+    def __init__(self, callback) -> None:
+        object.__setattr__(self, '_cb', callback)
+        object.__setattr__(self, 'value', None)
 
-        class _OpenStateVal:
-            value = _state_val
-
-        class _OpenState:
-            enabled = True
-            value = _OpenStateVal()
-
-        self.openState = _OpenState()
-
-
-class _MockControl:
-    """Mimics a weconnect ChangeableAttribute used for vehicle controls."""
-
-    def __init__(self, on_set) -> None:
-        self._on_set = on_set
-        self.value = None
-
-    def __setattr__(self, name, val):
-        if name == "value" and not name.startswith("_") and hasattr(self, "_on_set"):
-            self._on_set(val)
+    def __setattr__(self, name: str, val: Any) -> None:
         object.__setattr__(self, name, val)
+        if name == 'value' and val is not None:
+            try:
+                object.__getattribute__(self, '_cb')(val)
+            except Exception:
+                pass
 
 
-class _MockControls:
-    """
-    Mimics weconnect Controls object.  Setting .climatizationControl.value or
-    .chargingControl.value updates the mock state immediately so the next poll
-    reflects the command.
-    """
+class _Cmds:
+    """Commands container with a .commands dict, matching carconnectivity.Commands."""
 
+    def __init__(self, **cmds) -> None:
+        self.commands: dict = cmds
+
+
+# ---------------------------------------------------------------------------
+# Mock vehicle sub-objects matching carconnectivity attribute structure
+# ---------------------------------------------------------------------------
+
+class _MockBattery:
     def __init__(self, state: "MockVehicleState") -> None:
-        self._state = state
+        k = 273.15
+        self.temperature = _Attr((state.battery_temp_c + k) if state.battery_temp_c is not None else None)
+        self.temperature_min = _Attr((state.battery_temp_min_c + k) if state.battery_temp_min_c is not None else None)
+        self.temperature_max = _Attr((state.battery_temp_max_c + k) if state.battery_temp_max_c is not None else None)
 
-        def _set_climate(op):
-            from weconnect.elements.control_operation import ControlOperation
-            if op == ControlOperation.START:
-                self._state.climatisation_state = "heating"
+
+class _MockElectricDrive:
+    def __init__(self, state: "MockVehicleState") -> None:
+        self.level = _Attr(state.soc_pct)
+        self.range = _Attr(state.range_km)
+        self.battery = _MockBattery(state)
+
+
+class _MockDrives:
+    def __init__(self, state: "MockVehicleState") -> None:
+        self.drives: dict = {"primary": _MockElectricDrive(state)}
+
+
+class _MockPosition:
+    def __init__(self, state: "MockVehicleState") -> None:
+        self.latitude = _Attr(state.latitude)
+        self.longitude = _Attr(state.longitude)
+
+
+class _MockConnector:
+    def __init__(self, state: "MockVehicleState") -> None:
+        from carconnectivity.charging_connector import ChargingConnector
+        cs = (ChargingConnector.ChargingConnectorConnectionState.CONNECTED
+              if state.plug_connected
+              else ChargingConnector.ChargingConnectorConnectionState.DISCONNECTED)
+        self.connection_state = _Attr(cs)
+
+
+class _MockChargingSettings:
+    def __init__(self, state: "MockVehicleState") -> None:
+        self.target_level = _Attr(state.target_soc_pct)
+
+
+class _MockCharging:
+    def __init__(self, state: "MockVehicleState", state_ref: "MockVehicleState") -> None:
+        from carconnectivity.charging import Charging
+        _cs_map = {
+            "CHARGING": Charging.ChargingState.CHARGING,
+            "charging": Charging.ChargingState.CHARGING,
+            "READY_FOR_CHARGING": Charging.ChargingState.READY_FOR_CHARGING,
+            "readyForCharging": Charging.ChargingState.READY_FOR_CHARGING,
+        }
+        cs = _cs_map.get(state.charging_state, Charging.ChargingState.OFF)
+        self.state = _Attr(cs)
+        self.power = _Attr(state.charge_power_kw)
+        self.rate = _Attr(state.charge_rate_kmph)
+        _ct_map = {
+            "AC": Charging.ChargingType.AC, "ac": Charging.ChargingType.AC,
+            "DC": Charging.ChargingType.DC, "dc": Charging.ChargingType.DC,
+        }
+        ct = _ct_map.get(state.charge_type, Charging.ChargingType.OFF)
+        self.type = _Attr(ct)
+        est = None
+        if state.remaining_charge_min is not None and state.remaining_charge_min > 0:
+            est = datetime.now(timezone.utc) + timedelta(minutes=state.remaining_charge_min)
+        self.estimated_date_reached = _Attr(est)
+        self.settings = _MockChargingSettings(state)
+        self.connector = _MockConnector(state)
+
+        def _on_charge_cmd(cmd):
+            from carconnectivity.command_impl import ChargingStartStopCommand
+            if cmd == ChargingStartStopCommand.Command.START:
+                state_ref.charging_state = "CHARGING"
+                state_ref.charge_type = "AC"
+                state_ref.charge_power_kw = 11.0
             else:
-                self._state.climatisation_state = "off"
+                state_ref.charging_state = "READY_FOR_CHARGING"
+                state_ref.charge_type = ""
+                state_ref.charge_power_kw = None
 
-        def _set_charging(op):
-            from weconnect.elements.control_operation import ControlOperation
-            if op == ControlOperation.START:
-                self._state.charging_state = "CHARGING"
-                self._state.charge_type = "AC"
-                self._state.charge_power_kw = 11.0
+        self.commands = _Cmds(**{"start-stop": _Cmd(_on_charge_cmd)})
+
+
+class _MockClimatizationSettings:
+    def __init__(self, state: "MockVehicleState") -> None:
+        self.target_temperature = _Attr(state.cabin_temp_c)
+
+
+class _MockClimatization:
+    def __init__(self, state: "MockVehicleState", state_ref: "MockVehicleState") -> None:
+        from carconnectivity.climatization import Climatization
+        _cm_map = {
+            "heating": Climatization.ClimatizationState.HEATING,
+            "HEATING": Climatization.ClimatizationState.HEATING,
+            "cooling": Climatization.ClimatizationState.COOLING,
+            "ventilation": Climatization.ClimatizationState.VENTILATION,
+            "VENTILATION": Climatization.ClimatizationState.VENTILATION,
+        }
+        cs = _cm_map.get(state.climatisation_state, Climatization.ClimatizationState.OFF)
+        self.state = _Attr(cs)
+        self.settings = _MockClimatizationSettings(state)
+
+        def _on_clim_cmd(cmd):
+            from carconnectivity.command_impl import ClimatizationStartStopCommand
+            if cmd == ClimatizationStartStopCommand.Command.START:
+                state_ref.climatisation_state = "heating"
             else:
-                self._state.charging_state = "readyForCharging"
-                self._state.charge_type = ""
-                self._state.charge_power_kw = None
+                state_ref.climatisation_state = "off"
 
-        self.climatizationControl = _MockControl(_set_climate)
-        self.chargingControl = _MockControl(_set_charging)
+        self.commands = _Cmds(**{"start-stop": _Cmd(_on_clim_cmd)})
+
+
+class _MockDoors:
+    def __init__(self, state: "MockVehicleState") -> None:
+        from carconnectivity.doors import Doors
+        ls = Doors.LockState.LOCKED if state.locked else Doors.LockState.UNLOCKED
+        self.lock_state = _Attr(ls)
+
+
+class _MockVin:
+    def __init__(self, vin: str) -> None:
+        self.value = vin
 
 
 class _MockVehicle:
-    """Mimics a weconnect vehicle object's .domains dict."""
+    """Mimics a carconnectivity vehicle object with all attributes used by _extract_snapshot."""
 
-    def __init__(self, domains: dict[str, dict[str, _Status | None]], state: "MockVehicleState | None" = None) -> None:
-        self.domains = domains
-        self.controls = _MockControls(state) if state is not None else None
+    def __init__(self, state: "MockVehicleState", vin: str) -> None:
+        self.vin = _MockVin(vin)
+        self.drives = _MockDrives(state)
+        self.position = _MockPosition(state)
+        self.charging = _MockCharging(state, state)
+        self.climatization = _MockClimatization(state, state)
+        self.doors = _MockDoors(state)
+        self.odometer = _Attr(state.odometer_km)
+        self.outside_temperature = _Attr(None)  # not provided in mock
+        # windows not modelled (no open_pct in carconnectivity either)
+        self.windows = None
+
+
+class _MockGarage:
+    """Mimics a carconnectivity garage with list_vehicles / get_vehicle."""
+
+    def __init__(self, vehicle: _MockVehicle, vin: str) -> None:
+        self._vehicle = vehicle
+        self._vin = vin
+
+    def list_vehicles(self) -> list:
+        return [self._vehicle]
+
+    def get_vehicle(self, vin: str):
+        return self._vehicle if vin == self._vin else None
 
 
 # ---------------------------------------------------------------------------
@@ -167,84 +266,9 @@ class MockVehicleState:
         # outdoor_temp_c is intentionally absent — the real WeConnect API does
         # not expose an outsideTemperatureStatus domain on this vehicle.
 
-    def to_domains(self) -> dict[str, dict[str, _Status | None]]:
-        ts = _Attr(datetime.now(timezone.utc))
-
-        battery = _Status()
-        battery.carCapturedTimestamp = ts
-        battery.currentSOC_pct = self.soc_pct
-        battery.cruisingRangeElectric_km = self.range_km
-
-        charging_s = _Status()
-        charging_s.carCapturedTimestamp = ts
-        charging_s.chargingState = self.charging_state
-        charging_s.chargePower_kW = self.charge_power_kw
-        charging_s.chargeRate_kmph = self.charge_rate_kmph
-        charging_s.chargeType = self.charge_type
-        charging_s.remainingChargingTimeToComplete_min = self.remaining_charge_min
-
-        charging_settings = _Status()
-        charging_settings.carCapturedTimestamp = ts
-        charging_settings.targetSOC_pct = self.target_soc_pct
-
-        plug = _Status()
-        plug.carCapturedTimestamp = ts
-        plug.plugConnectionState = "CONNECTED" if self.plug_connected else "DISCONNECTED"
-
-        parking = _Status()
-        parking.carCapturedTimestamp = ts
-        parking.latitude = self.latitude
-        parking.longitude = self.longitude
-        parking.carCapturedTimestamp = _Attr(self.parking_time) if self.parking_time else _Attr(None)
-
-        access = _Status()
-        access.carCapturedTimestamp = ts
-        access.overallStatus = "safe" if self.locked else "unsafe"
-        access.windows = {name: _MockWindow(pct) for name, pct in self.windows.items()}
-
-        odometer = _Status()
-        odometer.carCapturedTimestamp = ts
-        odometer.odometer = self.odometer_km
-
-        clim = _Status()
-        clim.carCapturedTimestamp = ts
-        clim.climatisationState = self.climatisation_state
-
-        clim_settings = _Status()
-        clim_settings.carCapturedTimestamp = ts
-        clim_settings.targetTemperature_C = self.cabin_temp_c
-
-        # Battery temp — stored in Kelvin by the real API
-        batt_temp = _Status()
-        batt_temp.carCapturedTimestamp = ts
-        batt_temp.temperatureHvBatteryMin_K = (self.battery_temp_min_c + 273.15) if self.battery_temp_min_c is not None else None
-        batt_temp.temperatureHvBatteryMax_K = (self.battery_temp_max_c + 273.15) if self.battery_temp_max_c is not None else None
-
-        # Note: outsideTemperatureStatus is deliberately omitted — the real
-        # WeConnect API does not return this domain for this vehicle.
-
-        return {
-            "charging": {
-                "batteryStatus": battery,
-                "chargingStatus": charging_s,
-                "chargingSettings": charging_settings,
-                "plugStatus": plug,
-            },
-            "parking": {
-                "parkingPosition": parking,
-            },
-            "access": {
-                "accessStatus": access,
-            },
-            "measurements": {
-                "odometerStatus": odometer,
-                "temperatureBatteryStatus": batt_temp,
-            },
-            "climatisation": {
-                "climatisationStatus": clim,
-                "climatisationSettings": clim_settings,
-            },
-        }
+    def to_vehicle(self) -> _MockVehicle:
+        """Build a mock vehicle reflecting the current state."""
+        return _MockVehicle(self, MockWeConnect.MOCK_VIN)
 
 
 # ---------------------------------------------------------------------------
@@ -398,12 +422,12 @@ _DEFAULT_SCENARIO = "trip_then_charge"
 
 
 # ---------------------------------------------------------------------------
-# MockWeConnect — drop-in replacement for the weconnect.WeConnect object
+# MockWeConnect — drop-in replacement for a carconnectivity.CarConnectivity object
 # ---------------------------------------------------------------------------
 
 class MockWeConnect:
     """
-    Mimics the subset of the weconnect.WeConnect interface used by poller.py.
+    Mimics the subset of the carconnectivity.CarConnectivity interface used by poller.py.
 
     Thread-safe:  all state mutations go through self._lock.
     """
@@ -417,19 +441,21 @@ class MockWeConnect:
         self._scenario_fn = SCENARIOS[_DEFAULT_SCENARIO]
         self._tick: int = 0
         self._override: dict[str, Any] = {}
-        self.vehicles: dict[str, _MockVehicle] = {
-            self.MOCK_VIN: _MockVehicle(self._state.to_domains(), self._state)
-        }
+        self._vehicle: _MockVehicle = self._state.to_vehicle()
+        self._garage: _MockGarage = _MockGarage(self._vehicle, self.MOCK_VIN)
 
     # ------------------------------------------------------------------
-    # weconnect interface
+    # carconnectivity interface
     # ------------------------------------------------------------------
 
-    def login(self) -> None:
+    def startup(self) -> None:
         pass
 
-    def update(self) -> None:
-        """Advance the scenario by one tick and rebuild vehicle domains."""
+    def shutdown(self) -> None:
+        pass
+
+    def fetch_all(self) -> None:
+        """Advance the scenario by one tick and rebuild the mock vehicle."""
         with self._lock:
             self._scenario_fn(self._state, self._tick)
             self._tick += 1
@@ -440,7 +466,11 @@ class MockWeConnect:
                     setattr(self._state, key, value)
             self._override.clear()
 
-            self.vehicles[self.MOCK_VIN] = _MockVehicle(self._state.to_domains(), self._state)
+            self._vehicle = self._state.to_vehicle()
+            self._garage = _MockGarage(self._vehicle, self.MOCK_VIN)
+
+    def get_garage(self) -> _MockGarage:
+        return self._garage
 
     # ------------------------------------------------------------------
     # Dev-control interface (called from dev_router.py)
@@ -455,6 +485,8 @@ class MockWeConnect:
             self._tick = 0
             self._state = MockVehicleState()   # always start from a clean baseline
             self._override.clear()
+            self._vehicle = self._state.to_vehicle()
+            self._garage = _MockGarage(self._vehicle, self.MOCK_VIN)
 
     def set_state_override(self, fields: dict[str, Any]) -> None:
         """Override specific state fields on the next tick."""

@@ -209,24 +209,21 @@ def vampire_drain(
 @router.post("/climate")
 def control_climate(action: Literal["start", "stop"] = Query(...)):
     """Send a start/stop climatisation command to the vehicle."""
-    from weconnect.elements.control_operation import ControlOperation
+    from carconnectivity.command_impl import ClimatizationStartStopCommand
     from poller import get_weconnect_vehicle
-    _wc, vehicle = get_weconnect_vehicle()
+    _cc, vehicle = get_weconnect_vehicle()
     if vehicle is None:
         raise HTTPException(status_code=503, detail="Vehicle not connected to WeConnect")
     try:
-        controls = getattr(vehicle, "controls", None)
-        clim_control = getattr(controls, "climatizationControl", None) if controls else None
-        if clim_control is None:
+        clim = getattr(vehicle, 'climatization', None)
+        cmds = getattr(clim, 'commands', None) if clim else None
+        cmd = cmds.commands.get('start-stop') if cmds else None
+        if cmd is None:
             raise HTTPException(status_code=503, detail="Climatisation control not available for this vehicle")
-
-        operation = ControlOperation.START if action == "start" else ControlOperation.STOP
-
         try:
-            clim_control.value = operation
+            cmd.value = ClimatizationStartStopCommand.Command.START if action == "start" else ClimatizationStartStopCommand.Command.STOP
         except Exception as inner:
             raise HTTPException(status_code=500, detail=f"Climate command failed: {inner}")
-
         return {"status": "command_sent", "action": action}
     except HTTPException:
         raise
@@ -237,24 +234,21 @@ def control_climate(action: Literal["start", "stop"] = Query(...)):
 @router.post("/charging-control")
 def control_charging(action: Literal["start", "stop"] = Query(...)):
     """Send a start/stop charging command to the vehicle."""
-    from weconnect.elements.control_operation import ControlOperation
+    from carconnectivity.command_impl import ChargingStartStopCommand
     from poller import get_weconnect_vehicle
-    _wc, vehicle = get_weconnect_vehicle()
+    _cc, vehicle = get_weconnect_vehicle()
     if vehicle is None:
         raise HTTPException(status_code=503, detail="Vehicle not connected to WeConnect")
     try:
-        controls = getattr(vehicle, "controls", None)
-        charging_control = getattr(controls, "chargingControl", None) if controls else None
-        if charging_control is None:
+        charging = getattr(vehicle, 'charging', None)
+        cmds = getattr(charging, 'commands', None) if charging else None
+        cmd = cmds.commands.get('start-stop') if cmds else None
+        if cmd is None:
             raise HTTPException(status_code=503, detail="Charging control not available for this vehicle")
-
-        operation = ControlOperation.START if action == "start" else ControlOperation.STOP
-
         try:
-            charging_control.value = operation
+            cmd.value = ChargingStartStopCommand.Command.START if action == "start" else ChargingStartStopCommand.Command.STOP
         except Exception as inner:
             raise HTTPException(status_code=500, detail=f"Charging command failed: {inner}")
-
         return {"status": "command_sent", "action": action}
     except HTTPException:
         raise

@@ -63,7 +63,7 @@ ok(
 )
 d2, s2 = req("GET", "/api/dev/scenarios")
 ok("dev/scenarios 200", s2 == 200)
-ok("all 4 scenarios", set(d2.get("scenarios", [])) == {"parked", "charging", "driving", "trip_then_charge"})
+ok("all scenarios present", {"parked", "charging", "driving", "trip_then_charge"}.issubset(set(d2.get("scenarios", []))))
 
 # ---------------------------------------------------------------------------
 # 2. Auth setup

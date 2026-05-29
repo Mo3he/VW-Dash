@@ -3,7 +3,8 @@ uvicorn[standard]==0.32.1
 sqlalchemy==2.0.36
 alembic==1.14.0
 apscheduler==3.10.4
-weconnect[Images]==0.60.11
+carconnectivity
+carconnectivity-connector-volkswagen
 python-dotenv==1.0.1
 pydantic-settings==2.6.1
 httpx==0.28.0
