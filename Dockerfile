@@ -11,7 +11,7 @@ FROM python:3.11-slim
 
 # Node.js runtime (for the Next.js standalone server)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl postgresql-client && \
+    apt-get install -y --no-install-recommends ca-certificates curl patch postgresql-client && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
