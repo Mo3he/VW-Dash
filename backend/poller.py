@@ -43,6 +43,9 @@ def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
 _weconnect: Any = None
 _wc_fail_count: int = 0          # consecutive login failures for backoff
 _wc_next_retry: datetime | None = None   # earliest time to retry after backoff
+# Website-portal provider: True when login reached an email-OTP challenge that the
+# user must resolve via the Settings UI before telemetry can be fetched.
+_portal_otp_pending: bool = False
 
 # Serialize poll() so a scheduler tick and a manual trigger never overlap
 _poll_lock = threading.Lock()
@@ -269,6 +272,12 @@ def init_weconnect() -> None:
     if _wc_next_retry and datetime.now(timezone.utc) < _wc_next_retry:
         logger.debug("CarConnectivity login backoff active — skipping until %s", _wc_next_retry)
         return
+
+    # Read-only website-portal provider (attestation-free; volkswagen.<country>)
+    if settings.vw_provider == "website_portal":
+        _init_website_portal()
+        return
+
     try:
         from carconnectivity import carconnectivity as cc_module
         config = {
@@ -313,6 +322,65 @@ def reset_weconnect() -> None:
 def get_weconnect_vehicle():
     """Return the (WeConnect instance, vehicle) for control operations, or (None, None)."""
     return _weconnect, _get_vehicle()
+
+
+def _init_website_portal() -> None:
+    """Authenticate the read-only volkswagen.<country> website-portal provider."""
+    global _weconnect, _wc_fail_count, _wc_next_retry, _portal_otp_pending
+    try:
+        from website_portal import WebsitePortalProvider
+        provider = WebsitePortalProvider(
+            email=settings.vw_username,
+            password=settings.vw_password,
+            country=settings.vw_country,
+            vin=settings.vw_vin or None,
+        )
+        result = provider.login()
+        if result == "otp_required":
+            _weconnect = provider
+            _portal_otp_pending = True
+            logger.warning("Website portal requires an email OTP — submit it in Settings to continue")
+            return
+        _weconnect = provider
+        _portal_otp_pending = False
+        _wc_fail_count = 0
+        _wc_next_retry = None
+        logger.info("Website portal login successful (country=%s)", settings.vw_country)
+    except Exception as exc:
+        _wc_fail_count += 1
+        delay = _backoff_seconds(_wc_fail_count)
+        _wc_next_retry = datetime.now(timezone.utc) + timedelta(seconds=delay)
+        logger.error("Website portal login failed (attempt %d, retry in %.0fs): %s", _wc_fail_count, delay, exc)
+        _weconnect = None
+
+
+def portal_auth_status() -> dict:
+    """Report the website-portal auth state for the Settings UI."""
+    connected = (
+        _weconnect is not None
+        and getattr(_weconnect, "is_website_portal", False)
+        and not _portal_otp_pending
+    )
+    return {
+        "provider": settings.vw_provider,
+        "country": settings.vw_country,
+        "connected": connected,
+        "otp_required": _portal_otp_pending,
+    }
+
+
+def submit_portal_otp(code: str) -> dict:
+    """Submit an email-OTP code to finish a pending website-portal login."""
+    global _portal_otp_pending
+    if not (_weconnect is not None and getattr(_weconnect, "is_website_portal", False)):
+        raise RuntimeError("Website portal provider is not active")
+    if not _portal_otp_pending:
+        return {"status": "ok", "message": "No OTP pending"}
+    result = _weconnect.submit_otp(code)
+    if result == "ok":
+        _portal_otp_pending = False
+        return {"status": "ok"}
+    return {"status": "otp_required"}
 
 
 def _safe_float(val) -> float | None:
@@ -758,23 +826,40 @@ def _do_poll() -> None:
         if _weconnect is None:
             return
 
-    try:
-        _weconnect.fetch_all()
-    except Exception as exc:
-        logger.error("CarConnectivity fetch failed: %s", exc)
+    # Read-only website-portal provider returns a flat snapshot dict directly.
+    if getattr(_weconnect, "is_website_portal", False):
+        if _portal_otp_pending:
+            logger.debug("Website portal awaiting OTP — skipping poll")
+            return
         try:
-            _weconnect.shutdown()
-        except Exception:
-            pass
-        _weconnect = None
-        return
+            raw = _weconnect.get_snapshot()
+        except Exception as exc:
+            logger.error("Website portal fetch failed: %s", exc)
+            try:
+                _weconnect.shutdown()
+            except Exception:
+                pass
+            _weconnect = None
+            return
+    else:
+        try:
+            _weconnect.fetch_all()
+        except Exception as exc:
+            logger.error("CarConnectivity fetch failed: %s", exc)
+            try:
+                _weconnect.shutdown()
+            except Exception:
+                pass
+            _weconnect = None
+            return
 
-    vehicle = _get_vehicle()
-    if vehicle is None:
-        logger.warning("No vehicle found after update")
-        return
+        vehicle = _get_vehicle()
+        if vehicle is None:
+            logger.warning("No vehicle found after update")
+            return
 
-    raw = _extract_snapshot(vehicle)
+        raw = _extract_snapshot(vehicle)
+
     snap = VehicleSnapshot(recorded_at=datetime.now(timezone.utc), **raw)
 
     db: Session = SessionLocal()

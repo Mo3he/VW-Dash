@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     vw_password: str = ""
     vw_vin: str = ""
 
+    # Telemetry provider:
+    #   "carconnectivity" — the WeConnect app API (full data + control; broke for many
+    #                       accounts after VW's 2026 app-attestation lockout)
+    #   "website_portal"  — the volkswagen.<country> website session (read-only telemetry;
+    #                       attestation-free, no remote control)
+    vw_provider: str = "carconnectivity"
+    # Country/portal for the website_portal provider (e.g. "se", "de"). Selects the
+    # volkswagen.<country> host, feature-access group, and my-pages redirect URL.
+    vw_country: str = "se"
+
     poll_interval_seconds: int = 300
     db_path: str = os.path.join(_DATA_DIR, "vwdash.db")
 

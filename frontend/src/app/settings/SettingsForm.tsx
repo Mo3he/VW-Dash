@@ -8,6 +8,8 @@ interface ServerSettings {
   vw_username: string;
   vw_password_set: boolean;
   vw_vin: string;
+  vw_provider: string;
+  vw_country: string;
   electricity_rate_per_kwh: number;
   currency_symbol: string;
   currency_after: boolean;
@@ -24,6 +26,8 @@ interface FormState {
   vw_username: string;
   vw_password: string;
   vw_vin: string;
+  vw_provider: string;
+  vw_country: string;
   electricity_rate_per_kwh: string;
   currency_symbol: string;
   currency_after: boolean;
@@ -46,6 +50,8 @@ function toForm(s: ServerSettings | null): FormState {
     vw_username: s?.vw_username ?? "",
     vw_password: "",
     vw_vin: s?.vw_vin ?? "",
+    vw_provider: s?.vw_provider ?? "carconnectivity",
+    vw_country: s?.vw_country ?? "se",
     electricity_rate_per_kwh: String(s?.electricity_rate_per_kwh ?? 0.13),
     currency_symbol: s?.currency_symbol ?? "kr",
     currency_after: s?.currency_after ?? false,
@@ -316,6 +322,100 @@ function UsersManager({ inputClass }: { inputClass: string }) {
   );
 }
 
+interface PortalStatus {
+  provider: string;
+  country: string;
+  connected: boolean;
+  otp_required: boolean;
+}
+
+function PortalConnection({ inputClass }: { inputClass: string }) {
+  const [status, setStatus] = useState<PortalStatus | null>(null);
+  const [code, setCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const res = await fetch("/api/settings/portal-status", { headers: authHeaders() });
+      if (res.ok) setStatus(await res.json());
+    } catch {
+      // ignore transient errors
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function submitOtp() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/portal-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { detail?: string }).detail ?? "OTP rejected");
+      }
+      setCode("");
+      await load();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!status || status.provider !== "website_portal") return null;
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-white/5 pt-3">
+      <span className="text-xs text-gray-500 uppercase tracking-wider">Website portal</span>
+      {status.connected && !status.otp_required && (
+        <div className="text-xs text-green-400">Connected to volkswagen.{status.country} (read-only)</div>
+      )}
+      {status.otp_required && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-amber-400">
+            VW emailed you a verification code. Enter it to finish connecting.
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="Email code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className={`${inputClass} font-mono tracking-widest`}
+            />
+            <button
+              type="button"
+              onClick={submitOtp}
+              disabled={submitting || !code.trim()}
+              className="text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-colors disabled:opacity-40 whitespace-nowrap"
+            >
+              {submitting ? "Verifying…" : "Submit code"}
+            </button>
+          </div>
+        </div>
+      )}
+      {!status.connected && !status.otp_required && (
+        <div className="text-xs text-gray-500">
+          Not connected yet. Save your VW account details above; a code may be emailed to you.
+        </div>
+      )}
+      {error && <div className="text-xs text-red-400">{error}</div>}
+    </div>
+  );
+}
+
 export default function SettingsForm({ initial }: Props) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(toForm(initial));
@@ -379,6 +479,8 @@ export default function SettingsForm({ initial }: Props) {
 
     if (form.vw_username) body.vw_username = form.vw_username;
     if (form.vw_vin) body.vw_vin = form.vw_vin;
+    body.vw_provider = form.vw_provider;
+    body.vw_country = form.vw_country;
     // Only send password if user typed something new
     if (form.vw_password) body.vw_password = form.vw_password;
 
@@ -437,6 +539,46 @@ export default function SettingsForm({ initial }: Props) {
         <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">
           VW Account
         </div>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 uppercase tracking-wider">Data source</span>
+          <div className="flex rounded-lg overflow-hidden border border-white/10 text-xs">
+            <button
+              type="button"
+              onClick={() => set("vw_provider", "carconnectivity")}
+              className={`flex-1 px-3 py-2 ${form.vw_provider === "carconnectivity" ? "bg-[#00B0F0] text-[#001E50] font-semibold" : "bg-[#1e2535] text-gray-400"}`}
+            >
+              App API (full control)
+            </button>
+            <button
+              type="button"
+              onClick={() => set("vw_provider", "website_portal")}
+              className={`flex-1 px-3 py-2 ${form.vw_provider === "website_portal" ? "bg-[#00B0F0] text-[#001E50] font-semibold" : "bg-[#1e2535] text-gray-400"}`}
+            >
+              Website (read-only)
+            </button>
+          </div>
+          <span className="text-xs text-gray-600">
+            {form.vw_provider === "website_portal"
+              ? "Reads telemetry via the volkswagen.<country> website. No remote control, but works without the app API."
+              : "Uses the WeConnect app API. Full data and remote control, but blocked for many accounts since VW's 2026 lockout."}
+          </span>
+        </label>
+
+        {form.vw_provider === "website_portal" && (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-gray-500 uppercase tracking-wider">Country</span>
+            <select
+              value={form.vw_country}
+              onChange={(e) => set("vw_country", e.target.value)}
+              className={inputClass}
+            >
+              <option value="se">Sweden (vw.se)</option>
+              <option value="de">Germany (vw.de)</option>
+            </select>
+            <span className="text-xs text-gray-600">Matches the volkswagen.&lt;country&gt; portal your account uses</span>
+          </label>
+        )}
 
         <label className="flex flex-col gap-1">
           <span className="text-xs text-gray-500 uppercase tracking-wider">Email</span>
@@ -515,6 +657,8 @@ export default function SettingsForm({ initial }: Props) {
         {testStatus === "error" && (
           <div className="text-xs text-red-400">{testDetail}</div>
         )}
+
+        <PortalConnection inputClass={inputClass} />
       </div>
 
       {/* Cost & Range */}

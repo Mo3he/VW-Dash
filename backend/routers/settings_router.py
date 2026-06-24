@@ -23,6 +23,8 @@ class SettingsUpdate(BaseModel):
     vw_username: str | None = None
     vw_password: str | None = None
     vw_vin: str | None = None
+    vw_provider: str | None = None
+    vw_country: str | None = None
     electricity_rate_per_kwh: float | None = Field(default=None, ge=0)
     currency_symbol: str | None = None
     currency_after: bool | None = None
@@ -43,6 +45,8 @@ def get_settings():
         "vw_username": settings.vw_username,
         "vw_password_set": bool(settings.vw_password),
         "vw_vin": settings.vw_vin,
+        "vw_provider": settings.vw_provider,
+        "vw_country": settings.vw_country,
         "electricity_rate_per_kwh": settings.electricity_rate_per_kwh,
         "currency_symbol": settings.currency_symbol,
         "currency_after": settings.currency_after,
@@ -62,12 +66,16 @@ def update_settings(body: SettingsUpdate):
         body.vw_username is not None,
         body.vw_password is not None,
         body.vw_vin is not None,
+        body.vw_provider is not None,
+        body.vw_country is not None,
     ])
 
     persist_settings(
         vw_username=body.vw_username,
         vw_password=body.vw_password,
         vw_vin=body.vw_vin,
+        vw_provider=body.vw_provider,
+        vw_country=body.vw_country,
         electricity_rate_per_kwh=body.electricity_rate_per_kwh,
         currency_symbol=body.currency_symbol,
         currency_after=body.currency_after,
@@ -117,3 +125,30 @@ def test_connection():
         return {"status": "ok", "vehicles": vehicles}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@router.get("/portal-status")
+def portal_status():
+    """Auth state of the read-only website-portal provider (for the Settings UI)."""
+    return poller.portal_auth_status()
+
+
+class PortalOTP(BaseModel):
+    code: str
+
+
+@router.post("/portal-otp")
+def portal_otp(body: PortalOTP):
+    """Submit an email-OTP code to finish a pending website-portal login."""
+    code = (body.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="OTP code is required")
+    try:
+        result = poller.submit_portal_otp(code)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    if result.get("status") == "ok":
+        _executor.submit(poller.poll)
+    return result
