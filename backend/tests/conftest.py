@@ -36,6 +36,7 @@ def reset_poller_state():
     poller._prev_lon = None
     poller._parking_time_unchanged_polls = 0
     poller._trip_point_count = 0
+    poller._last_odometer_move_at = None
     poller._active_charging_session_id = None
     poller._prev_charging_state = None
     poller._prev_soc = None

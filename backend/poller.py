@@ -72,12 +72,20 @@ _prev_lat: float | None = None               # last known parked latitude
 _prev_lon: float | None = None               # last known parked longitude
 _prev_soc_pct: float | None = None           # last known parked SoC %
 _parking_time_unchanged_polls: int = 0       # consecutive polls with same parking_time
+# Wall-clock time the odometer last increased — used to end odometer-fallback trips
+# (website-portal mode has no GPS/parking_time, so a stalled odometer is the only
+# signal that the car has parked).
+_last_odometer_move_at: datetime | None = None
 
 # Maximum breadcrumbs per trip before we stop recording (prevents unbounded growth)
 _TRIP_POINT_CAP = 500
 _trip_point_count: int = 0          # resets when a new trip starts
 # Force-close a trip that has been open longer than this
 _TRIP_MAX_DURATION_H = 24
+# End an odometer-fallback trip (no parking_time available) once the odometer has
+# been stable for this long. Computed per-poll from the poll interval so it stays
+# robust across configurations; floored to avoid premature ends on slow city driving.
+_TRIP_IDLE_END_MIN_S = 600
 
 # --- Background geocoding queue ---
 _geo_queue: queue.Queue = queue.Queue()
@@ -159,7 +167,7 @@ def init_state_from_db() -> None:
     """Recover in-memory trip/charging state from the DB after a restart."""
     global _active_trip_id, _trip_start_odometer, _active_charging_session_id, _prev_odometer
     global _trip_point_count, _prev_parking_time, _prev_lat, _prev_lon, _prev_soc_pct
-    global _prev_locked, _prev_plug_connected, _prev_climatisation_state
+    global _prev_locked, _prev_plug_connected, _prev_climatisation_state, _last_odometer_move_at
 
     db = SessionLocal()
     try:
@@ -172,6 +180,10 @@ def init_state_from_db() -> None:
         if row:
             _active_trip_id = row[0]
             logger.info("Resuming open trip id=%d", _active_trip_id)
+            # Give the resumed trip a fresh idle window so the odometer-idle end
+            # (website-portal mode) doesn't fire spuriously on the first poll after
+            # restart; it will close normally once the odometer stalls again.
+            _last_odometer_move_at = datetime.now(timezone.utc)
             # Recover how many breadcrumbs already exist for this trip
             count_row = db.execute(_text(
                 "SELECT COUNT(*) FROM trip_points WHERE trip_id = :id"
@@ -617,11 +629,16 @@ def _update_charging_session(db: Session, snap: VehicleSnapshot) -> None:
         _charging_power_samples = []
 
 
-def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
-    """Finalize an active trip row. Also called for the 24h force-close."""
+def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot, ended_at: datetime | None = None) -> None:
+    """Finalize an active trip row. Also called for the 24h force-close.
+
+    ``ended_at`` overrides the trip end timestamp (used by the odometer-idle end
+    path, where the actual park happened well before the poll that detects it).
+    """
     global _trip_point_count
     odometer = snap.odometer_km
-    trip.ended_at = snap.recorded_at
+    end_time = ended_at or snap.recorded_at
+    trip.ended_at = end_time
     trip.soc_end_pct = snap.soc_pct
     trip.end_lat = snap.latitude
     trip.end_lon = snap.longitude
@@ -633,7 +650,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
             dist = raw_dist
             trip.distance_km = round(dist, 2)
             trip.distance_miles = round(dist * 0.621371, 2)
-            duration_h = (snap.recorded_at - as_utc(trip.started_at)).total_seconds() / 3600
+            duration_h = (as_utc(end_time) - as_utc(trip.started_at)).total_seconds() / 3600
             if duration_h > 0:
                 trip.avg_speed_kmh = round(dist / duration_h, 1)
     # Energy used: prefer SoC delta (coarse, whole-%) but fall back to range delta
@@ -664,6 +681,7 @@ def _close_trip(db: Session, trip: Trip, snap: VehicleSnapshot) -> None:
 def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     global _active_trip_id, _prev_odometer, _trip_start_odometer, _trip_point_count
     global _prev_parking_time, _prev_lat, _prev_lon, _prev_soc_pct, _parking_time_unchanged_polls
+    global _last_odometer_move_at
 
     odometer = snap.odometer_km
     charging = (snap.charging_state or "").upper() == "CHARGING"
@@ -702,6 +720,8 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
         and _prev_odometer is not None
         and odometer > _prev_odometer
     )
+    if odometer_moved:
+        _last_odometer_move_at = datetime.now(timezone.utc)
 
     # FALLBACK A: parking_time has never been seen — use odometer delta
     parking_time_available = parking_time is not None or _prev_parking_time is not None
@@ -718,6 +738,19 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
     )
 
     should_start_fallback = should_start_odometer_fallback or should_start_stale_parking
+
+    # FALLBACK END: when parking_time is unavailable (website-portal mode), the car
+    # never reports a parking position, so parking_appeared can never fire and a trip
+    # would stay open until the 24h force-close. Instead, treat a stalled odometer as
+    # the park signal: end the trip once the odometer has been stable long enough.
+    idle_end_threshold_s = max(_TRIP_IDLE_END_MIN_S, 2 * settings.poll_interval_seconds)
+    odometer_idle_end = (
+        _active_trip_id is not None
+        and not parking_time_available
+        and not odometer_moved
+        and _last_odometer_move_at is not None
+        and (datetime.now(timezone.utc) - _last_odometer_move_at).total_seconds() >= idle_end_threshold_s
+    )
 
     # --- START ---
     if _active_trip_id is None and not definitely_parked:
@@ -745,6 +778,7 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
             # from the last parked poll — as the true trip start, same as we do for lat/lon/soc.
             _trip_start_odometer = start_odo
             _trip_point_count = 0
+            _last_odometer_move_at = datetime.now(timezone.utc)
             trigger = "parking_disappeared" if parking_disappeared else ("stale_parking" if should_start_stale_parking else "odometer")
             logger.info("Trip %d started (trigger=%s, soc=%.0f%%)", trip.id, trigger, start_soc or 0)
             _emit_event(db, "trip_started", json.dumps({"soc_pct": start_soc}))
@@ -763,10 +797,13 @@ def _update_trip(db: Session, snap: VehicleSnapshot) -> None:
 
     # --- END ---
     # Use separate `if` (not `elif`) so it can fire on the same poll as a breadcrumb
-    if _active_trip_id is not None and (definitely_parked or parking_appeared):
+    if _active_trip_id is not None and (definitely_parked or parking_appeared or odometer_idle_end):
         trip = db.get(Trip, _active_trip_id)
         if trip:
-            _close_trip(db, trip, snap)
+            # For an odometer-idle end the car actually parked back when the odometer
+            # last moved; use that timestamp so trip duration/avg speed stay accurate.
+            ended_at = _last_odometer_move_at if (odometer_idle_end and not definitely_parked and not parking_appeared) else None
+            _close_trip(db, trip, snap, ended_at=ended_at)
         _active_trip_id = None
         _trip_start_odometer = None
         _parking_time_unchanged_polls = 0  # reset so next drive starts fresh

@@ -243,3 +243,102 @@ class TestUpdateTripStaleParkingFallback:
 
         assert poller._active_trip_id is None
         assert poller._parking_time_unchanged_polls == 0
+
+
+# ---------------------------------------------------------------------------
+# _update_trip — odometer-idle end (website-portal mode, no parking_time)
+# ---------------------------------------------------------------------------
+
+class TestUpdateTripOdometerIdleEnd:
+    """
+    The website portal exposes no GPS/parking_time, so trips start via the odometer
+    fallback. Without a parking signal, the trip must end once the odometer stalls
+    for long enough instead of waiting for the 24h force-close.
+    """
+
+    def _portal_snap(self, recorded_at, odometer_km):
+        # No parking_time, no GPS — mirrors a website-portal snapshot.
+        return _snap(
+            recorded_at=recorded_at,
+            soc_pct=70.0,
+            range_km=287.0,
+            odometer_km=odometer_km,
+            parking_time=None,
+            latitude=None,
+            longitude=None,
+            plug_connected=False,
+            charging_state="notReadyForCharging",
+            charge_power_kw=0.0,
+        )
+
+    def test_trip_starts_then_ends_on_idle_odometer(self, db):
+        import poller
+
+        poller._prev_odometer = 10000.0
+
+        with patch.object(__import__("config").settings, "poll_interval_seconds", 300):
+            with patch.object(__import__("config").settings, "battery_capacity_kwh", 77.0):
+                with patch.object(__import__("config").settings, "epa_rated_range_km", 410.0):
+                    # Poll 1: odometer moves → trip starts via odometer fallback
+                    s1 = self._portal_snap(T0, odometer_km=10005.0)
+                    db.add(s1); db.flush()
+                    with patch("webhook.fire"):
+                        poller._update_trip(db, s1)
+                    assert poller._active_trip_id is not None
+
+                    # Poll 2 (5 min later): odometer still moving → trip stays open
+                    s2 = self._portal_snap(T0 + timedelta(minutes=5), odometer_km=10010.0)
+                    db.add(s2); db.flush()
+                    with patch("webhook.fire"):
+                        poller._update_trip(db, s2)
+                    assert poller._active_trip_id is not None
+
+                    # Simulate the car having parked: push last-move into the past so the
+                    # idle threshold (max(600, 2*300)=600s) is exceeded.
+                    poller._last_odometer_move_at = datetime.now(timezone.utc) - timedelta(seconds=601)
+
+                    # Poll 3: odometer unchanged and idle long enough → trip ENDS
+                    s3 = self._portal_snap(T0 + timedelta(minutes=10), odometer_km=10010.0)
+                    db.add(s3); db.flush()
+                    with patch("webhook.fire"):
+                        poller._update_trip(db, s3)
+
+        assert poller._active_trip_id is None, "Trip should end once odometer stalls"
+
+    def test_trip_stays_open_while_odometer_moves(self, db):
+        """A long drive (odometer keeps increasing) must not be ended by idle logic."""
+        import poller
+
+        poller._prev_odometer = 10000.0
+
+        with patch.object(__import__("config").settings, "poll_interval_seconds", 300):
+            odo = 10000.0
+            for i in range(6):
+                odo += 5.0
+                s = self._portal_snap(T0 + timedelta(minutes=i * 5), odometer_km=odo)
+                db.add(s); db.flush()
+                with patch("webhook.fire"):
+                    poller._update_trip(db, s)
+
+        assert poller._active_trip_id is not None
+
+    def test_idle_end_does_not_fire_before_threshold(self, db):
+        """An odometer that just stalled (within threshold) keeps the trip open."""
+        import poller
+
+        poller._prev_odometer = 10000.0
+
+        with patch.object(__import__("config").settings, "poll_interval_seconds", 300):
+            with patch("webhook.fire"):
+                s1 = self._portal_snap(T0, odometer_km=10005.0)
+                db.add(s1); db.flush()
+                poller._update_trip(db, s1)
+                assert poller._active_trip_id is not None
+
+                # Only a short time has passed since the last move (< 600s threshold).
+                poller._last_odometer_move_at = datetime.now(timezone.utc) - timedelta(seconds=120)
+                s2 = self._portal_snap(T0 + timedelta(minutes=2), odometer_km=10005.0)
+                db.add(s2); db.flush()
+                poller._update_trip(db, s2)
+
+        assert poller._active_trip_id is not None
