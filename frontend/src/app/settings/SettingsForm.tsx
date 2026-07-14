@@ -896,7 +896,7 @@ export default function SettingsForm({ initial }: Props) {
           <input
             type="checkbox"
             checked={form.mqtt_enabled}
-            onChange={(e) => set("mqtt_enabled", e.target.checked)}
+            onChange={(e) => setForm((f) => ({ ...f, mqtt_enabled: e.target.checked }))}
             className="accent-[#00B0F0] w-4 h-4"
           />
           <span className="text-xs text-gray-400">Publish vehicle data to an MQTT broker</span>
@@ -969,7 +969,7 @@ export default function SettingsForm({ initial }: Props) {
               <input
                 type="checkbox"
                 checked={form.mqtt_discovery}
-                onChange={(e) => set("mqtt_discovery", e.target.checked)}
+                onChange={(e) => setForm((f) => ({ ...f, mqtt_discovery: e.target.checked }))}
                 className="accent-[#00B0F0] w-4 h-4"
               />
               <span className="text-xs text-gray-400">Enable Home Assistant MQTT discovery (auto-create entities)</span>
