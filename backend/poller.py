@@ -23,6 +23,7 @@ from routers.chargers import find_nearby
 from ws import broadcast
 from utils import as_utc, iso_utc
 import webhook
+import mqtt_client
 
 logger = logging.getLogger(__name__)
 
@@ -953,3 +954,8 @@ def _do_poll() -> None:
                 asyncio.ensure_future(broadcast(payload))
         except RuntimeError:
             pass
+
+    try:
+        mqtt_client.publish_snapshot(payload)
+    except Exception as exc:
+        logger.debug("MQTT publish skipped: %s", exc)

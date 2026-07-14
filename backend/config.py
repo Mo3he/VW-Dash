@@ -81,6 +81,16 @@ class Settings(BaseSettings):
     # Notifications
     webhook_url: str = ""       # POST JSON to this URL on key events (charge/trip start/end)
 
+    # MQTT / Home Assistant
+    mqtt_enabled: bool = False
+    mqtt_host: str = ""
+    mqtt_port: int = 1883
+    mqtt_username: str = ""
+    mqtt_password: str = ""
+    mqtt_base_topic: str = "vwdash"
+    mqtt_discovery: bool = True             # publish Home Assistant MQTT discovery config
+    mqtt_discovery_prefix: str = "homeassistant"
+
     # Development / testing
     use_mock_weconnect: bool = False  # set USE_MOCK_WC=1 to replace the real WeConnect with a scriptable fake
 

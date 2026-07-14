@@ -20,6 +20,14 @@ interface ServerSettings {
   timezone: string;
   time_24h: boolean;
   distance_unit: "km" | "miles";
+  mqtt_enabled?: boolean;
+  mqtt_host?: string;
+  mqtt_port?: number;
+  mqtt_username?: string;
+  mqtt_password_set?: boolean;
+  mqtt_base_topic?: string;
+  mqtt_discovery?: boolean;
+  mqtt_discovery_prefix?: string;
 }
 
 interface FormState {
@@ -39,6 +47,14 @@ interface FormState {
   time_24h: boolean;
   distance_unit: "km" | "miles";
   webhook_url: string;
+  mqtt_enabled: boolean;
+  mqtt_host: string;
+  mqtt_port: string;
+  mqtt_username: string;
+  mqtt_password: string;
+  mqtt_base_topic: string;
+  mqtt_discovery: boolean;
+  mqtt_discovery_prefix: string;
 }
 
 interface Props {
@@ -63,6 +79,14 @@ function toForm(s: ServerSettings | null): FormState {
     time_24h: s?.time_24h ?? false,
     distance_unit: s?.distance_unit ?? "km",
     webhook_url: "",
+    mqtt_enabled: s?.mqtt_enabled ?? false,
+    mqtt_host: s?.mqtt_host ?? "",
+    mqtt_port: String(s?.mqtt_port ?? 1883),
+    mqtt_username: s?.mqtt_username ?? "",
+    mqtt_password: "",
+    mqtt_base_topic: s?.mqtt_base_topic ?? "vwdash",
+    mqtt_discovery: s?.mqtt_discovery ?? true,
+    mqtt_discovery_prefix: s?.mqtt_discovery_prefix ?? "homeassistant",
   };
 }
 
@@ -486,6 +510,15 @@ export default function SettingsForm({ initial }: Props) {
 
     if (form.webhook_url !== undefined) body.webhook_url = form.webhook_url;
 
+    body.mqtt_enabled = form.mqtt_enabled;
+    body.mqtt_host = form.mqtt_host;
+    body.mqtt_port = Number(form.mqtt_port) || 1883;
+    body.mqtt_username = form.mqtt_username;
+    if (form.mqtt_password) body.mqtt_password = form.mqtt_password;
+    body.mqtt_base_topic = form.mqtt_base_topic;
+    body.mqtt_discovery = form.mqtt_discovery;
+    body.mqtt_discovery_prefix = form.mqtt_discovery_prefix;
+
     try {
       const res = await fetch("/api/settings", {
         method: "PATCH",
@@ -494,7 +527,7 @@ export default function SettingsForm({ initial }: Props) {
       });
       if (!res.ok) throw new Error(await res.text());
       setSaved(true);
-      setForm((f) => ({ ...f, vw_password: "", webhook_url: "" }));
+      setForm((f) => ({ ...f, vw_password: "", webhook_url: "", mqtt_password: "" }));
       setTimeout(() => setSaved(false), 3000);
       router.refresh();
     } catch (err) {
@@ -853,6 +886,109 @@ export default function SettingsForm({ initial }: Props) {
             POST JSON on charge/trip start and end. Leave blank to disable.
           </span>
         </label>
+      </div>
+
+      {/* MQTT / Home Assistant */}
+      <div className="rounded-2xl bg-[#161b27] border border-white/5 p-4 flex flex-col gap-4">
+        <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">MQTT / Home Assistant</div>
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.mqtt_enabled}
+            onChange={(e) => set("mqtt_enabled", e.target.checked)}
+            className="accent-[#00B0F0] w-4 h-4"
+          />
+          <span className="text-xs text-gray-400">Publish vehicle data to an MQTT broker</span>
+        </label>
+
+        {form.mqtt_enabled && (
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              <label className="flex flex-col gap-1 col-span-2">
+                <span className="text-xs text-gray-500 uppercase tracking-wider">Broker host</span>
+                <input
+                  type="text"
+                  value={form.mqtt_host}
+                  onChange={(e) => set("mqtt_host", e.target.value)}
+                  placeholder="192.168.1.10 or homeassistant.local"
+                  className={inputClass}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-gray-500 uppercase tracking-wider">Port</span>
+                <input
+                  type="number"
+                  value={form.mqtt_port}
+                  onChange={(e) => set("mqtt_port", e.target.value)}
+                  placeholder="1883"
+                  className={inputClass}
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-gray-500 uppercase tracking-wider">Username</span>
+                <input
+                  type="text"
+                  value={form.mqtt_username}
+                  onChange={(e) => set("mqtt_username", e.target.value)}
+                  autoComplete="off"
+                  className={inputClass}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-gray-500 uppercase tracking-wider">Password</span>
+                <input
+                  type="password"
+                  value={form.mqtt_password}
+                  onChange={(e) => set("mqtt_password", e.target.value)}
+                  placeholder={initial?.mqtt_password_set ? "•••••••• (unchanged)" : ""}
+                  autoComplete="new-password"
+                  className={inputClass}
+                />
+              </label>
+            </div>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-gray-500 uppercase tracking-wider">Base topic</span>
+              <input
+                type="text"
+                value={form.mqtt_base_topic}
+                onChange={(e) => set("mqtt_base_topic", e.target.value)}
+                placeholder="vwdash"
+                className={inputClass}
+              />
+              <span className="text-xs text-gray-600">
+                State is published to <code>{form.mqtt_base_topic || "vwdash"}/state</code>.
+              </span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.mqtt_discovery}
+                onChange={(e) => set("mqtt_discovery", e.target.checked)}
+                className="accent-[#00B0F0] w-4 h-4"
+              />
+              <span className="text-xs text-gray-400">Enable Home Assistant MQTT discovery (auto-create entities)</span>
+            </label>
+
+            {form.mqtt_discovery && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-gray-500 uppercase tracking-wider">Discovery prefix</span>
+                <input
+                  type="text"
+                  value={form.mqtt_discovery_prefix}
+                  onChange={(e) => set("mqtt_discovery_prefix", e.target.value)}
+                  placeholder="homeassistant"
+                  className={inputClass}
+                />
+              </label>
+            )}
+          </>
+        )}
       </div>
 
       {/* Users — admin only */}

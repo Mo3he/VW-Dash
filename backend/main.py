@@ -126,8 +126,11 @@ async def lifespan(app: FastAPI):
     # Give the settings router a reference so poll_interval_seconds PATCH takes live effect
     from routers.settings_router import set_scheduler as _set_scheduler
     _set_scheduler(scheduler)
+    import mqtt_client
+    mqtt_client.init()
     yield
     scheduler.shutdown()
+    mqtt_client.shutdown()
 
 
 app = FastAPI(title="VW Dash", lifespan=lifespan, redirect_slashes=False)

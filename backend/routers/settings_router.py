@@ -37,6 +37,14 @@ class SettingsUpdate(BaseModel):
     distance_unit: str | None = None
     access_token: str | None = None
     webhook_url: str | None = None
+    mqtt_enabled: bool | None = None
+    mqtt_host: str | None = None
+    mqtt_port: int | None = Field(default=None, ge=1, le=65535)
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
+    mqtt_base_topic: str | None = None
+    mqtt_discovery: bool | None = None
+    mqtt_discovery_prefix: str | None = None
 
 
 @router.get("")
@@ -57,6 +65,15 @@ def get_settings():
         "timezone": settings.timezone,
         "time_24h": settings.time_24h,
         "distance_unit": settings.distance_unit,
+        "webhook_url": settings.webhook_url,
+        "mqtt_enabled": settings.mqtt_enabled,
+        "mqtt_host": settings.mqtt_host,
+        "mqtt_port": settings.mqtt_port,
+        "mqtt_username": settings.mqtt_username,
+        "mqtt_password_set": bool(settings.mqtt_password),
+        "mqtt_base_topic": settings.mqtt_base_topic,
+        "mqtt_discovery": settings.mqtt_discovery,
+        "mqtt_discovery_prefix": settings.mqtt_discovery_prefix,
     }
 
 
@@ -68,6 +85,17 @@ def update_settings(body: SettingsUpdate):
         body.vw_vin is not None,
         body.vw_provider is not None,
         body.vw_country is not None,
+    ])
+
+    mqtt_changed = any([
+        body.mqtt_enabled is not None,
+        body.mqtt_host is not None,
+        body.mqtt_port is not None,
+        body.mqtt_username is not None,
+        body.mqtt_password is not None,
+        body.mqtt_base_topic is not None,
+        body.mqtt_discovery is not None,
+        body.mqtt_discovery_prefix is not None,
     ])
 
     persist_settings(
@@ -88,11 +116,23 @@ def update_settings(body: SettingsUpdate):
         distance_unit=body.distance_unit,
         access_token=body.access_token,
         webhook_url=body.webhook_url,
+        mqtt_enabled=body.mqtt_enabled,
+        mqtt_host=body.mqtt_host,
+        mqtt_port=body.mqtt_port,
+        mqtt_username=body.mqtt_username,
+        mqtt_password=body.mqtt_password,
+        mqtt_base_topic=body.mqtt_base_topic,
+        mqtt_discovery=body.mqtt_discovery,
+        mqtt_discovery_prefix=body.mqtt_discovery_prefix,
     )
 
     if credentials_changed:
         poller.reset_weconnect()
         _executor.submit(poller.poll)
+
+    if mqtt_changed:
+        import mqtt_client
+        _executor.submit(mqtt_client.reset)
 
     if body.poll_interval_seconds is not None and _scheduler is not None:
         _scheduler.reschedule_job(
