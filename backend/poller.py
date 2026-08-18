@@ -67,6 +67,15 @@ _charging_power_samples: list[float] = []
 _prev_climatisation_state: str | None = None
 _prev_locked: bool | None = None
 _prev_plug_connected: bool | None = None
+# Last known per-window open/closed state, carried forward when a poll's accessStatus
+# domain doesn't refresh (the car can go several polls without WeConnect returning fresh
+# door/window data — see the lock-state fix in _extract_snapshot for the same class of gap).
+# Without this, the Windows dashboard card blinks in and out on every such poll even though
+# nothing about the car actually changed. Capped by _WINDOWS_CARRY_FORWARD_MAX so a long
+# accessStatus outage hides the card again rather than silently showing days-old state.
+_prev_windows_json: str | None = None
+_prev_windows_json_at: datetime | None = None
+_WINDOWS_CARRY_FORWARD_MAX = timedelta(hours=24)
 # Parking-position based trip detection (mirrors VWsFriend PARKING_POSITION mode)
 _prev_parking_time: datetime | None = None   # carCapturedTimestamp from last poll
 _prev_lat: float | None = None               # last known parked latitude
@@ -169,6 +178,7 @@ def init_state_from_db() -> None:
     global _active_trip_id, _trip_start_odometer, _active_charging_session_id, _prev_odometer
     global _trip_point_count, _prev_parking_time, _prev_lat, _prev_lon, _prev_soc_pct
     global _prev_locked, _prev_plug_connected, _prev_climatisation_state, _last_odometer_move_at
+    global _prev_windows_json
 
     db = SessionLocal()
     try:
@@ -254,6 +264,16 @@ def init_state_from_db() -> None:
             _prev_locked = last_snap.locked
             _prev_plug_connected = last_snap.plug_connected
             _prev_climatisation_state = last_snap.climatisation_state
+
+        last_windows_snap = db.execute(
+            _sel(VehicleSnapshot)
+            .where(VehicleSnapshot.windows_json.is_not(None))
+            .order_by(VehicleSnapshot.recorded_at.desc())
+            .limit(1)
+        ).scalars().first()
+        if last_windows_snap:
+            _prev_windows_json = last_windows_snap.windows_json
+            _prev_windows_json_at = as_utc(last_windows_snap.recorded_at)
     except Exception as exc:
         logger.warning("Could not restore state from DB: %s", exc)
     finally:
@@ -335,6 +355,46 @@ def reset_weconnect() -> None:
 def get_weconnect_vehicle():
     """Return the (WeConnect instance, vehicle) for control operations, or (None, None)."""
     return _weconnect, _get_vehicle()
+
+
+def set_climate(action: str) -> tuple[bool, str]:
+    """Send a start/stop climatisation command to the vehicle.
+
+    Returns (ok, message) so callers (HTTP router, MQTT command handler) don't
+    need to know about carconnectivity's command objects.
+    """
+    from carconnectivity.command_impl import ClimatizationStartStopCommand
+    vehicle = _get_vehicle()
+    if vehicle is None:
+        return False, "Vehicle not connected to WeConnect"
+    clim = getattr(vehicle, 'climatization', None)
+    cmds = getattr(clim, 'commands', None) if clim else None
+    cmd = cmds.commands.get('start-stop') if cmds else None
+    if cmd is None:
+        return False, "Climatisation control not available for this vehicle"
+    try:
+        cmd.value = ClimatizationStartStopCommand.Command.START if action == "start" else ClimatizationStartStopCommand.Command.STOP
+    except Exception as exc:
+        return False, f"Climate command failed: {exc}"
+    return True, "command_sent"
+
+
+def set_charging(action: str) -> tuple[bool, str]:
+    """Send a start/stop charging command to the vehicle. See set_climate() for return shape."""
+    from carconnectivity.command_impl import ChargingStartStopCommand
+    vehicle = _get_vehicle()
+    if vehicle is None:
+        return False, "Vehicle not connected to WeConnect"
+    charging = getattr(vehicle, 'charging', None)
+    cmds = getattr(charging, 'commands', None) if charging else None
+    cmd = cmds.commands.get('start-stop') if cmds else None
+    if cmd is None:
+        return False, "Charging control not available for this vehicle"
+    try:
+        cmd.value = ChargingStartStopCommand.Command.START if action == "start" else ChargingStartStopCommand.Command.STOP
+    except Exception as exc:
+        return False, f"Charging command failed: {exc}"
+    return True, "command_sent"
 
 
 def _init_website_portal() -> None:
@@ -513,12 +573,26 @@ def _extract_snapshot(vehicle) -> dict:
             data["climatisation_state"] = _cc_attr_val(climatization, 'state') or ""
             data["cabin_temp_c"] = _safe_float(_cc_attr_val(climatization, 'settings', 'target_temperature'))
 
-        # Lock state
+        # Lock state — prefer the per-door lock_state (parsed directly from each door's
+        # `status` string). The aggregate vehicle.doors.lock_state is unreliable: the
+        # carconnectivity VW connector derives it a second time from `overallStatus`
+        # (a combined lock+open "safe"/"unsafe" flag) and resets it to None whenever
+        # that key is absent from the API response, clobbering the correct per-door value.
         doors = getattr(vehicle, 'doors', None)
         if doors:
-            lock_val = _cc_attr_val(doors, 'lock_state')
-            if lock_val is not None:
-                data["locked"] = (str(lock_val) == "locked")
+            per_door_locks = [
+                v for v in (
+                    _cc_attr_val(door_obj, 'lock_state')
+                    for door_obj in (getattr(doors, 'doors', None) or {}).values()
+                )
+                if v is not None
+            ]
+            if per_door_locks:
+                data["locked"] = all(v == "locked" for v in per_door_locks)
+            else:
+                lock_val = _cc_attr_val(doors, 'lock_state')
+                if lock_val is not None:
+                    data["locked"] = (str(lock_val) == "locked")
 
         # Windows — open/closed state only (open percentage not available in carconnectivity)
         windows_obj = getattr(vehicle, 'windows', None)
@@ -532,6 +606,10 @@ def _extract_snapshot(vehicle) -> dict:
                         windows_data[str(win_name)] = {"state": str(open_val)}
                 if windows_data:
                     data["windows_json"] = json.dumps(windows_data)
+                else:
+                    logger.debug("Windows present but no per-window open_state this poll (accessStatus gap) — carrying forward last known state")
+            else:
+                logger.debug("No per-window data this poll (accessStatus gap) — carrying forward last known state")
 
         # Odometer (km)
         odo_attr = getattr(vehicle, 'odometer', None)
@@ -898,7 +976,15 @@ def _do_poll() -> None:
 
         raw = _extract_snapshot(vehicle)
 
-    snap = VehicleSnapshot(recorded_at=datetime.now(timezone.utc), **raw)
+    global _prev_windows_json, _prev_windows_json_at
+    now = datetime.now(timezone.utc)
+    if raw.get("windows_json"):
+        _prev_windows_json = raw["windows_json"]
+        _prev_windows_json_at = now
+    elif _prev_windows_json is not None and _prev_windows_json_at is not None and now - _prev_windows_json_at < _WINDOWS_CARRY_FORWARD_MAX:
+        raw["windows_json"] = _prev_windows_json
+
+    snap = VehicleSnapshot(recorded_at=now, **raw)
 
     db: Session = SessionLocal()
     try:

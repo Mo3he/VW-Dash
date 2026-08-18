@@ -22,17 +22,26 @@ _lock = threading.Lock()
 # Snapshot of the settings used to build the current client. When settings change
 # we tear down and rebuild on next publish.
 _active_config: tuple | None = None
+# Entity ids (from _ENTITIES) whose "hide_until_seen" discovery config has been
+# published because we've observed at least one non-null value for them. Some
+# vehicles simply never report a field (e.g. outdoor temperature) — publishing
+# a discovery config for it would leave a permanently "Unknown" entity in HA,
+# so those entities are only announced once real data shows up.
+_seen_fields: set[str] = set()
 
-# Sensor / binary_sensor definitions exposed to Home Assistant.
-# id           -> object_id used in unique_id and discovery topic
-# name         -> friendly name shown in HA
-# component    -> "sensor" or "binary_sensor"
-# tpl          -> value_template evaluated against the JSON state payload
-# unit         -> unit_of_measurement (optional)
-# device_class -> HA device_class (optional)
-# state_class  -> HA state_class (optional)
-# icon         -> mdi icon (optional)
-_ENTITIES: list[dict[str, str]] = [
+# Sensor / binary_sensor / switch definitions exposed to Home Assistant.
+# id            -> object_id used in unique_id and discovery topic
+# name          -> friendly name shown in HA
+# component     -> "sensor", "binary_sensor", or "switch"
+# tpl           -> value_template evaluated against the JSON state payload
+# unit          -> unit_of_measurement (optional)
+# device_class  -> HA device_class (optional)
+# state_class   -> HA state_class (optional)
+# icon          -> mdi icon (optional)
+# payload_key   -> key in the state payload used to gate hide_until_seen entities
+# hide_until_seen -> don't publish discovery config until payload_key has been non-null once
+# command_topic -> suffix (under the base topic) switches subscribe to for ON/OFF commands
+_ENTITIES: list[dict[str, Any]] = [
     {"id": "soc", "name": "State of Charge", "component": "sensor",
      "tpl": "{{ value_json.soc_pct }}", "unit": "%", "device_class": "battery", "state_class": "measurement"},
     {"id": "range", "name": "Range", "component": "sensor",
@@ -52,7 +61,8 @@ _ENTITIES: list[dict[str, str]] = [
     {"id": "target_soc", "name": "Target SoC", "component": "sensor",
      "tpl": "{{ value_json.target_soc_pct }}", "unit": "%", "icon": "mdi:battery-charging-high"},
     {"id": "outdoor_temp", "name": "Outdoor Temperature", "component": "sensor",
-     "tpl": "{{ value_json.outdoor_temp_c }}", "unit": "°C", "device_class": "temperature", "state_class": "measurement"},
+     "tpl": "{{ value_json.outdoor_temp_c }}", "unit": "°C", "device_class": "temperature", "state_class": "measurement",
+     "payload_key": "outdoor_temp_c", "hide_until_seen": True},
     {"id": "battery_temp", "name": "Battery Temperature", "component": "sensor",
      "tpl": "{{ value_json.battery_temp_c }}", "unit": "°C", "device_class": "temperature", "state_class": "measurement"},
     {"id": "cabin_temp", "name": "Cabin Temperature", "component": "sensor",
@@ -64,7 +74,23 @@ _ENTITIES: list[dict[str, str]] = [
      "tpl": "{{ 'ON' if value_json.plug_connected else 'OFF' }}", "device_class": "plug"},
     {"id": "locked", "name": "Lock", "component": "binary_sensor",
      "tpl": "{{ 'OFF' if value_json.locked else 'ON' }}", "device_class": "lock"},
+    # switches — command_topic is subscribed to on connect; payload ON/OFF triggers
+    # the same start/stop control used by the /api/vehicle/climate and
+    # /api/vehicle/charging-control REST endpoints. State reflects actual vehicle
+    # state (not just the last command sent), so it self-corrects on the next poll.
+    {"id": "climate", "name": "Climate Control", "component": "switch",
+     "tpl": "{{ 'ON' if value_json.climatisation_state in ['heating', 'cooling', 'ventilation'] else 'OFF' }}",
+     "icon": "mdi:air-conditioner", "command_topic": "climate/set"},
+    {"id": "charging", "name": "Charging", "component": "switch",
+     "tpl": "{{ 'ON' if value_json.charging_state == 'charging' else 'OFF' }}",
+     "icon": "mdi:ev-station", "command_topic": "charging/set"},
 ]
+
+# command_topic suffix -> control action dispatched via poller.set_climate/set_charging
+_COMMANDS: dict[str, str] = {
+    "climate/set": "climate",
+    "charging/set": "charging",
+}
 
 
 def _config_tuple(s) -> tuple:
@@ -91,7 +117,7 @@ def _availability_topic(s) -> str:
     return f"{_base_topic(s)}/availability"
 
 
-def _publish_discovery(client, s) -> None:
+def _publish_entity_discovery(client, s, e: dict[str, Any]) -> None:
     node_id = _node_id(s)
     device = {
         "identifiers": [node_id],
@@ -103,24 +129,45 @@ def _publish_discovery(client, s) -> None:
     avail_topic = _availability_topic(s)
     prefix = (s.mqtt_discovery_prefix or "homeassistant").strip().strip("/")
 
+    object_id = e["id"]
+    cfg: dict[str, Any] = {
+        "name": e["name"],
+        "unique_id": f"{node_id}_{object_id}",
+        "state_topic": state_topic,
+        "value_template": e["tpl"],
+        "availability_topic": avail_topic,
+        "device": device,
+    }
+    if e.get("unit"):
+        cfg["unit_of_measurement"] = e["unit"]
+    for key in ("device_class", "state_class", "icon"):
+        if e.get(key):
+            cfg[key] = e[key]
+    if e.get("command_topic"):
+        cfg["command_topic"] = f"{_base_topic(s)}/{e['command_topic']}"
+    topic = f"{prefix}/{e['component']}/{node_id}/{object_id}/config"
+    client.publish(topic, json.dumps(cfg), qos=1, retain=True)
+
+
+def _publish_discovery(client, s) -> None:
+    count = 0
     for e in _ENTITIES:
-        object_id = e["id"]
-        cfg: dict[str, Any] = {
-            "name": e["name"],
-            "unique_id": f"{node_id}_{object_id}",
-            "state_topic": state_topic,
-            "value_template": e["tpl"],
-            "availability_topic": avail_topic,
-            "device": device,
-        }
-        if e.get("unit"):
-            cfg["unit_of_measurement"] = e["unit"]
-        for key in ("device_class", "state_class", "icon"):
-            if e.get(key):
-                cfg[key] = e[key]
-        topic = f"{prefix}/{e['component']}/{node_id}/{object_id}/config"
-        client.publish(topic, json.dumps(cfg), qos=1, retain=True)
-    logger.info("MQTT: published Home Assistant discovery for %d entities", len(_ENTITIES))
+        if e.get("hide_until_seen") and e["id"] not in _seen_fields:
+            continue
+        _publish_entity_discovery(client, s, e)
+        count += 1
+    logger.info("MQTT: published Home Assistant discovery for %d entities", count)
+
+
+def _publish_late_discovery(client, s, payload: dict) -> None:
+    """Announce entities gated by hide_until_seen the first time real data appears."""
+    for e in _ENTITIES:
+        if not e.get("hide_until_seen") or e["id"] in _seen_fields:
+            continue
+        if payload.get(e.get("payload_key")) is not None:
+            _seen_fields.add(e["id"])
+            _publish_entity_discovery(client, s, e)
+            logger.info("MQTT: late-published discovery for %s (data now available)", e["id"])
 
 
 def _build_client(s):
@@ -151,8 +198,33 @@ def _build_client(s):
         cl.publish(avail_topic, "online", qos=1, retain=True)
         if s.mqtt_discovery:
             _publish_discovery(cl, s)
+        base = _base_topic(s)
+        for suffix in _COMMANDS:
+            cl.subscribe(f"{base}/{suffix}", qos=1)
+
+    def _on_message(cl, userdata, msg):
+        suffix = msg.topic[len(_base_topic(s)) + 1:]
+        action_name = _COMMANDS.get(suffix)
+        if action_name is None:
+            return
+        try:
+            command = msg.payload.decode().strip().upper()
+        except Exception:
+            return
+        if command not in ("ON", "OFF"):
+            logger.warning("MQTT: ignoring unrecognised payload %r on %s", command, msg.topic)
+            return
+        action = "start" if command == "ON" else "stop"
+        import poller
+        control_fn = poller.set_climate if action_name == "climate" else poller.set_charging
+        ok, message = control_fn(action)
+        if not ok:
+            logger.warning("MQTT: %s %s command failed: %s", action_name, action, message)
+        else:
+            logger.info("MQTT: %s %s command sent", action_name, action)
 
     client.on_connect = _on_connect
+    client.on_message = _on_message
 
     try:
         client.connect_async(s.mqtt_host, int(s.mqtt_port or 1883), keepalive=60)
@@ -217,6 +289,8 @@ def publish_snapshot(payload: dict) -> None:
             return
         try:
             client.publish(_state_topic(s), json.dumps(payload), qos=0, retain=True)
+            if s.mqtt_discovery:
+                _publish_late_discovery(client, s, payload)
         except Exception as exc:
             logger.warning("MQTT publish failed: %s", exc)
 

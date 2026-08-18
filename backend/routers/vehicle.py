@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
@@ -8,9 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import VehicleSnapshot, Trip
+from models import VehicleSnapshot, Trip, ChargingSession
 from config import settings
-from utils import iso_utc
+from utils import iso_utc, as_utc
 
 router = APIRouter(prefix="/api/vehicle", tags=["vehicle"])
 
@@ -143,54 +143,41 @@ def vampire_drain(
     db: Session = Depends(get_db),
 ):
     """
-    Detect SoC drops during parked periods (no charging, no driving).
-    Returns per-event drain and summary stats.
+    Detect SoC drops during parked periods — the gaps between consecutive Trips and
+    ChargingSessions. Deriving windows this way (rather than from raw per-snapshot
+    charge_power_kw/odometer_km) matters because those two fields are frequently null in
+    practice — WeConnect often omits them, and imported historical data may not carry them
+    at all — which used to make the old snapshot-scanning approach silently unable to tell
+    charging/driving from parked, collapsing unrelated trips and charges into one bogus
+    mega-window. Trip/ChargingSession boundaries are already derived correctly elsewhere
+    (poller._update_trip / _update_charging_session), so a gap between one ending and the
+    next starting is by definition a period we know nothing else was happening.
     """
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    snaps = db.scalars(
-        select(VehicleSnapshot)
-        .where(
-            VehicleSnapshot.recorded_at >= since,
-            VehicleSnapshot.soc_pct.is_not(None),
-        )
-        .order_by(VehicleSnapshot.recorded_at.asc())
-    ).all()
+
+    activities: list[tuple[datetime, datetime, Optional[float], Optional[float]]] = []
+    for t in db.scalars(select(Trip).where(Trip.started_at.is_not(None), Trip.ended_at.is_not(None))):
+        activities.append((as_utc(t.started_at), as_utc(t.ended_at), t.soc_start_pct, t.soc_end_pct))
+    for c in db.scalars(select(ChargingSession).where(ChargingSession.started_at.is_not(None), ChargingSession.ended_at.is_not(None))):
+        activities.append((as_utc(c.started_at), as_utc(c.ended_at), c.soc_start_pct, c.soc_end_pct))
+    activities.sort(key=lambda a: a[0])
 
     events = []
-    i = 0
-    while i < len(snaps) - 1:
-        s = snaps[i]
-        # Skip if charging or moving (charge_power_kw > 0 approximates charging)
-        if (s.charge_power_kw or 0) > 0:
-            i += 1
+    for (_prev_start, prev_end, _prev_soc_start, prev_soc_end), (next_start, _next_end, next_soc_start, _next_soc_end) in zip(activities, activities[1:]):
+        if prev_end < since or prev_end >= next_start:
+            continue  # outside the requested window, or overlapping/back-to-back activities
+        duration_h = (next_start - prev_end).total_seconds() / 3600
+        if duration_h < min_park_hours or prev_soc_end is None or next_soc_start is None:
             continue
-        # Find contiguous parked window: ends when charging starts OR odometer increases (driving)
-        j = i + 1
-        while j < len(snaps):
-            nxt = snaps[j]
-            if (nxt.charge_power_kw or 0) > 0:
-                break  # charging started
-            if (
-                nxt.odometer_km is not None
-                and s.odometer_km is not None
-                and nxt.odometer_km > s.odometer_km
-            ):
-                break  # odometer moved — car drove, not parked
-            j += 1
-        end_snap = snaps[j - 1]
-        duration_h = (end_snap.recorded_at - s.recorded_at).total_seconds() / 3600
-        if duration_h >= min_park_hours and s.soc_pct is not None and end_snap.soc_pct is not None:
-            drop = s.soc_pct - end_snap.soc_pct
-            if drop > 0:
-                drain_pct_per_h = drop / duration_h
-                events.append({
-                    "start": iso_utc(s.recorded_at),
-                    "end": iso_utc(end_snap.recorded_at),
-                    "duration_h": round(duration_h, 1),
-                    "soc_drop_pct": round(drop, 1),
-                    "drain_pct_per_h": round(drain_pct_per_h, 3),
-                })
-        i = j
+        drop = prev_soc_end - next_soc_start
+        if drop > 0:
+            events.append({
+                "start": iso_utc(prev_end),
+                "end": iso_utc(next_start),
+                "duration_h": round(duration_h, 1),
+                "soc_drop_pct": round(drop, 1),
+                "drain_pct_per_h": round(drop / duration_h, 3),
+            })
 
     if not events:
         return {"events": [], "avg_drain_pct_per_h": None, "total_soc_lost": None}
@@ -209,51 +196,23 @@ def vampire_drain(
 @router.post("/climate")
 def control_climate(action: Literal["start", "stop"] = Query(...)):
     """Send a start/stop climatisation command to the vehicle."""
-    from carconnectivity.command_impl import ClimatizationStartStopCommand
-    from poller import get_weconnect_vehicle
-    _cc, vehicle = get_weconnect_vehicle()
-    if vehicle is None:
-        raise HTTPException(status_code=503, detail="Vehicle not connected to WeConnect")
-    try:
-        clim = getattr(vehicle, 'climatization', None)
-        cmds = getattr(clim, 'commands', None) if clim else None
-        cmd = cmds.commands.get('start-stop') if cmds else None
-        if cmd is None:
-            raise HTTPException(status_code=503, detail="Climatisation control not available for this vehicle")
-        try:
-            cmd.value = ClimatizationStartStopCommand.Command.START if action == "start" else ClimatizationStartStopCommand.Command.STOP
-        except Exception as inner:
-            raise HTTPException(status_code=500, detail=f"Climate command failed: {inner}")
-        return {"status": "command_sent", "action": action}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    from poller import set_climate
+    ok, message = set_climate(action)
+    if not ok:
+        status_code = 503 if "not connected" in message or "not available" in message else 500
+        raise HTTPException(status_code=status_code, detail=message)
+    return {"status": message, "action": action}
 
 
 @router.post("/charging-control")
 def control_charging(action: Literal["start", "stop"] = Query(...)):
     """Send a start/stop charging command to the vehicle."""
-    from carconnectivity.command_impl import ChargingStartStopCommand
-    from poller import get_weconnect_vehicle
-    _cc, vehicle = get_weconnect_vehicle()
-    if vehicle is None:
-        raise HTTPException(status_code=503, detail="Vehicle not connected to WeConnect")
-    try:
-        charging = getattr(vehicle, 'charging', None)
-        cmds = getattr(charging, 'commands', None) if charging else None
-        cmd = cmds.commands.get('start-stop') if cmds else None
-        if cmd is None:
-            raise HTTPException(status_code=503, detail="Charging control not available for this vehicle")
-        try:
-            cmd.value = ChargingStartStopCommand.Command.START if action == "start" else ChargingStartStopCommand.Command.STOP
-        except Exception as inner:
-            raise HTTPException(status_code=500, detail=f"Charging command failed: {inner}")
-        return {"status": "command_sent", "action": action}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    from poller import set_charging
+    ok, message = set_charging(action)
+    if not ok:
+        status_code = 503 if "not connected" in message or "not available" in message else 500
+        raise HTTPException(status_code=status_code, detail=message)
+    return {"status": message, "action": action}
 
 
 def _snap_to_dict(s: VehicleSnapshot) -> dict:

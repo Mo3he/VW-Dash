@@ -146,25 +146,42 @@ def update_settings(body: SettingsUpdate):
 
 @router.post("/test-connection")
 def test_connection():
-    """Attempt WeConnect login and return success/failure without persisting."""
+    """Verify the current WeConnect session actually works, without persisting anything.
+
+    Mirrors poller.init_weconnect()'s own branching (mock / website-portal / carconnectivity)
+    so a successful result here means poller.py's real polling will also succeed: it reuses
+    the live session if poller already has one, or attempts a fresh login through the same
+    device-flow-patched carconnectivity path otherwise (see we_connect_session.patch — the
+    old standalone `weconnect` package this used to call still does the scripted HTML
+    login-form POST that VW's WAF now rejects with a 403).
+    """
+    if settings.use_mock_weconnect:
+        _cc, vehicle = poller.get_weconnect_vehicle()
+        vin = getattr(getattr(vehicle, "vin", None), "value", None) if vehicle else None
+        return {"status": "ok", "vehicles": [vin or "mock"]}
+
     if not settings.vw_username or not settings.vw_password:
         raise HTTPException(status_code=400, detail="No credentials configured")
-    try:
-        import os
-        from weconnect import weconnect as wc
-        tokenfile = os.path.join(os.path.dirname(__file__), "..", "..", "data", "weconnect_token.json")
-        wc_inst = wc.WeConnect(
-            username=settings.vw_username,
-            password=settings.vw_password,
-            tokenfile=tokenfile,
-            updateAfterLogin=False,
-            loginOnInit=False,
-        )
-        wc_inst.login()
-        vehicles = list(wc_inst.vehicles.keys())
-        return {"status": "ok", "vehicles": vehicles}
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+
+    if settings.vw_provider == "website_portal":
+        status = poller.portal_auth_status()
+        if not status["connected"] and not status["otp_required"]:
+            poller.init_weconnect()
+            status = poller.portal_auth_status()
+        if status["otp_required"]:
+            raise HTTPException(status_code=409, detail="Email OTP confirmation required — check Settings for the pending OTP prompt")
+        if not status["connected"]:
+            raise HTTPException(status_code=503, detail="Not connected — check credentials and server logs")
+        return {"status": "ok", "vehicles": [settings.vw_vin] if settings.vw_vin else []}
+
+    _cc, vehicle = poller.get_weconnect_vehicle()
+    if vehicle is None:
+        poller.init_weconnect()
+        _cc, vehicle = poller.get_weconnect_vehicle()
+    if vehicle is None:
+        raise HTTPException(status_code=503, detail="Could not connect to WeConnect — check credentials and server logs")
+    vin = getattr(getattr(vehicle, "vin", None), "value", None)
+    return {"status": "ok", "vehicles": [vin] if vin else []}
 
 
 @router.get("/portal-status")
