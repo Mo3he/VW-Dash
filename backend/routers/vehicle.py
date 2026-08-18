@@ -215,6 +215,28 @@ def control_charging(action: Literal["start", "stop"] = Query(...)):
     return {"status": message, "action": action}
 
 
+@router.post("/window-heating")
+def control_window_heating(action: Literal["start", "stop"] = Query(...)):
+    """Send a start/stop window-heating command to the vehicle."""
+    from poller import set_window_heating
+    ok, message = set_window_heating(action)
+    if not ok:
+        status_code = 503 if "not connected" in message or "not available" in message else 500
+        raise HTTPException(status_code=status_code, detail=message)
+    return {"status": message, "action": action}
+
+
+@router.post("/wake")
+def control_wake():
+    """Force VW to refresh the vehicle's data."""
+    from poller import wake_vehicle
+    ok, message = wake_vehicle()
+    if not ok:
+        status_code = 503 if "not connected" in message or "not available" in message else 500
+        raise HTTPException(status_code=status_code, detail=message)
+    return {"status": message}
+
+
 def _snap_to_dict(s: VehicleSnapshot) -> dict:
     return {
         "id": s.id,

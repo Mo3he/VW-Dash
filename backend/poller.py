@@ -313,6 +313,13 @@ def init_weconnect() -> None:
 
     try:
         from carconnectivity import carconnectivity as cc_module
+        # The volkswagen connector caches every status HTTP response for `interval` seconds
+        # (min 180, default 300 when unset) and serves that cache regardless of how often we
+        # call fetch_all() — so without this, our own poll_interval_seconds setting has no
+        # effect on how fresh the data actually is: a fresh poll every 5 minutes could still
+        # return a car-status snapshot that's up to another 5 minutes stale on top of that.
+        # Tying the connector's interval to our own setting keeps them aligned.
+        wc_interval = max(180, int(settings.poll_interval_seconds or 300))
         config = {
             "carConnectivity": {
                 "connectors": [{
@@ -320,6 +327,15 @@ def init_weconnect() -> None:
                     "config": {
                         "username": settings.vw_username,
                         "password": settings.vw_password,
+                        "interval": wc_interval,
+                        # The connector only requests the "access" domain (doors + windows +
+                        # lock state) from VW's API if the account's own /capabilities
+                        # response lists it as enabled with no restrictions — for many
+                        # accounts it's flagged/omitted there even though the underlying
+                        # data is available, so it silently never gets asked for at all
+                        # (not a data-availability gap, just never requested). This forces
+                        # the request regardless, same as other WeConnect integrations do.
+                        "force_enable_access": True,
                     }
                 }]
             }
@@ -357,6 +373,32 @@ def get_weconnect_vehicle():
     return _weconnect, _get_vehicle()
 
 
+def _schedule_confirmation_polls() -> None:
+    """Force a couple of follow-up polls after a control command so the dashboard (even with
+    no tab open) and MQTT pick up the car's new state without waiting for the next scheduled
+    poll interval.
+
+    This does NOT make the update appear quickly: the volkswagen connector caches every
+    status HTTP response for `interval` seconds (tied to poll_interval_seconds, floor 180s —
+    see init_weconnect()) and serves that cache regardless of how often fetch_all() is called,
+    so a command's effect is invisible to us until that cache actually expires. Polling faster
+    than that wastes a request without getting fresher data, and hammering VW's API is exactly
+    what triggered the WAF lockout this app already had to work around once — so this schedules
+    exactly two attempts spaced past the cache window rather than a tight retry loop.
+    """
+    interval = max(180, int(settings.poll_interval_seconds or 300))
+    delays_sec = (interval + 15, interval * 2 + 15)
+
+    def _worker():
+        for delay in delays_sec:
+            time.sleep(delay)
+            try:
+                poll()
+            except Exception:
+                logger.exception("Confirmation poll after control command failed")
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 def set_climate(action: str) -> tuple[bool, str]:
     """Send a start/stop climatisation command to the vehicle.
 
@@ -376,6 +418,8 @@ def set_climate(action: str) -> tuple[bool, str]:
         cmd.value = ClimatizationStartStopCommand.Command.START if action == "start" else ClimatizationStartStopCommand.Command.STOP
     except Exception as exc:
         return False, f"Climate command failed: {exc}"
+    if not settings.use_mock_weconnect:
+        _schedule_confirmation_polls()
     return True, "command_sent"
 
 
@@ -394,6 +438,47 @@ def set_charging(action: str) -> tuple[bool, str]:
         cmd.value = ChargingStartStopCommand.Command.START if action == "start" else ChargingStartStopCommand.Command.STOP
     except Exception as exc:
         return False, f"Charging command failed: {exc}"
+    if not settings.use_mock_weconnect:
+        _schedule_confirmation_polls()
+    return True, "command_sent"
+
+
+def set_window_heating(action: str) -> tuple[bool, str]:
+    """Send a start/stop window-heating command to the vehicle. See set_climate() for return shape."""
+    from carconnectivity.command_impl import WindowHeatingStartStopCommand
+    vehicle = _get_vehicle()
+    if vehicle is None:
+        return False, "Vehicle not connected to WeConnect"
+    window_heatings = getattr(vehicle, 'window_heatings', None)
+    cmds = getattr(window_heatings, 'commands', None) if window_heatings else None
+    cmd = cmds.commands.get('start-stop') if cmds else None
+    if cmd is None:
+        return False, "Window heating control not available for this vehicle"
+    try:
+        cmd.value = WindowHeatingStartStopCommand.Command.START if action == "start" else WindowHeatingStartStopCommand.Command.STOP
+    except Exception as exc:
+        return False, f"Window heating command failed: {exc}"
+    if not settings.use_mock_weconnect:
+        _schedule_confirmation_polls()
+    return True, "command_sent"
+
+
+def wake_vehicle() -> tuple[bool, str]:
+    """Send a wake command to the vehicle, forcing VW to refresh its data. Returns (ok, message)."""
+    from carconnectivity.command_impl import WakeSleepCommand
+    vehicle = _get_vehicle()
+    if vehicle is None:
+        return False, "Vehicle not connected to WeConnect"
+    cmds = getattr(vehicle, 'commands', None)
+    cmd = cmds.commands.get('wake-sleep') if cmds else None
+    if cmd is None:
+        return False, "Wake command not available for this vehicle"
+    try:
+        cmd.value = WakeSleepCommand.Command.WAKE
+    except Exception as exc:
+        return False, f"Wake command failed: {exc}"
+    if not settings.use_mock_weconnect:
+        _schedule_confirmation_polls()
     return True, "command_sent"
 
 
@@ -573,11 +658,22 @@ def _extract_snapshot(vehicle) -> dict:
             data["climatisation_state"] = _cc_attr_val(climatization, 'state') or ""
             data["cabin_temp_c"] = _safe_float(_cc_attr_val(climatization, 'settings', 'target_temperature'))
 
-        # Lock state — prefer the per-door lock_state (parsed directly from each door's
-        # `status` string). The aggregate vehicle.doors.lock_state is unreliable: the
-        # carconnectivity VW connector derives it a second time from `overallStatus`
-        # (a combined lock+open "safe"/"unsafe" flag) and resets it to None whenever
-        # that key is absent from the API response, clobbering the correct per-door value.
+        # Window heating
+        window_heatings = getattr(vehicle, 'window_heatings', None)
+        if window_heatings:
+            wh_state = _cc_attr_val(window_heatings, 'heating_state')
+            if isinstance(wh_state, str):
+                data["window_heating_state"] = wh_state
+
+        # Lock state — the aggregate vehicle.doors.lock_state is the reliable source (live-
+        # verified: correctly resolves to 'locked'/'unlocked'). Per-door lock_state is NOT
+        # reliable on carconnectivity 0.11.8 — its Doors.Door class is constructed with
+        # value=Doors.LockState (the class itself) instead of value_type=Doors.LockState, so
+        # every per-door lock_state holds the raw enum class rather than a real member even
+        # after the connector sets real data on it (live-verified: _cc_attr_val returns
+        # <enum 'LockState'> for all doors, never an actual string). We still prefer per-door
+        # data when it resolves to a real string, in case a future library version fixes
+        # this, but broken per-door values must never override a working aggregate.
         doors = getattr(vehicle, 'doors', None)
         if doors:
             per_door_locks = [
@@ -585,14 +681,14 @@ def _extract_snapshot(vehicle) -> dict:
                     _cc_attr_val(door_obj, 'lock_state')
                     for door_obj in (getattr(doors, 'doors', None) or {}).values()
                 )
-                if v is not None
+                if isinstance(v, str)
             ]
             if per_door_locks:
                 data["locked"] = all(v == "locked" for v in per_door_locks)
             else:
                 lock_val = _cc_attr_val(doors, 'lock_state')
-                if lock_val is not None:
-                    data["locked"] = (str(lock_val) == "locked")
+                if isinstance(lock_val, str):
+                    data["locked"] = (lock_val == "locked")
 
         # Windows — open/closed state only (open percentage not available in carconnectivity)
         windows_obj = getattr(vehicle, 'windows', None)
@@ -1028,6 +1124,7 @@ def _do_poll() -> None:
         "battery_temp_max_c": snap.battery_temp_max_c,
         "cabin_temp_c": snap.cabin_temp_c,
         "climatisation_state": snap.climatisation_state,
+        "window_heating_state": snap.window_heating_state,
         "recorded_at": iso_utc(snap.recorded_at),
         "car_captured_at": iso_utc(snap.car_captured_at),
     }

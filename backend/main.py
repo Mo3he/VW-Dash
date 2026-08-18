@@ -49,6 +49,7 @@ def _run_migrations() -> None:
             "ALTER TABLE vehicle_snapshots ADD COLUMN windows_json TEXT",
             "ALTER TABLE trips ADD COLUMN odometer_start_km FLOAT",
             "ALTER TABLE trips ADD COLUMN odometer_end_km FLOAT",
+            "ALTER TABLE vehicle_snapshots ADD COLUMN window_heating_state VARCHAR(32)",
         ]:
             try:
                 conn.execute(text(stmt))

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Lock, Unlock, Plug, Thermometer, Wind, Gauge, RefreshCw,
 } from "lucide-react";
@@ -75,11 +75,16 @@ export default function DashboardClient({ initial: initialProp, history: history
     api.vehicle.history(24).then(setHistory).catch(() => {});
   }, []);
 
-  const [climateLoading, setClimateLoading] = useState(false);
+  // Non-null while a command has been sent but the real state hasn't confirmed it yet —
+  // distinct from "loading" (the POST itself), which resolves in under a second. This can
+  // stay non-null for minutes: see the interval/cache comment on the handlers below.
+  const [climatePendingAction, setClimatePendingAction] = useState<"start" | "stop" | null>(null);
   const [climateMsg, setClimateMsg] = useState<string | null>(null);
-  const [chargingControlLoading, setChargingControlLoading] = useState(false);
+  const [chargingPendingAction, setChargingPendingAction] = useState<"start" | "stop" | null>(null);
   const [chargingControlMsg, setChargingControlMsg] = useState<string | null>(null);
   const [polling, setPolling] = useState(false);
+  const climatePendingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chargingPendingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function handleForcePoll() {
     setPolling(true);
@@ -124,52 +129,59 @@ export default function DashboardClient({ initial: initialProp, history: history
     climatisationState !== "";
   const activeClimateLabel = climateLabel(climatisationState);
 
+  // Clear the pending state as soon as the real, confirmed state matches what was requested.
+  useEffect(() => {
+    if (
+      (climatePendingAction === "start" && isClimateActive) ||
+      (climatePendingAction === "stop" && !isClimateActive)
+    ) {
+      setClimatePendingAction(null);
+      if (climatePendingTimeout.current) clearTimeout(climatePendingTimeout.current);
+    }
+  }, [isClimateActive, climatePendingAction]);
+
+  useEffect(() => {
+    if (
+      (chargingPendingAction === "start" && isCharging) ||
+      (chargingPendingAction === "stop" && !isCharging)
+    ) {
+      setChargingPendingAction(null);
+      if (chargingPendingTimeout.current) clearTimeout(chargingPendingTimeout.current);
+    }
+  }, [isCharging, chargingPendingAction]);
+
+  // The car's own backend caches status responses for roughly one poll interval (floor 180s),
+  // so a command's effect can't show up here any sooner than that regardless of how often we
+  // ask — the server schedules its own follow-up polls and pushes the update over the
+  // WebSocket once real data is available. See poller._schedule_confirmation_polls. The
+  // pending state above reflects that honestly instead of silently reverting to "off" the
+  // moment the request completes; the timeout here is just a safety net in case the real
+  // state never arrives (e.g. the command actually failed on the car's side).
   async function handleChargingControl(action: "start" | "stop") {
-    setChargingControlLoading(true);
+    setChargingPendingAction(action);
     setChargingControlMsg(null);
     try {
       await api.vehicle.chargingControl(action);
-      setChargingControlMsg(action === "start" ? "Charging started — refreshing in 30s…" : "Charging stopped — refreshing in 30s…");
-      setTimeout(async () => {
-        try {
-          await api.vehicle.poll();
-          const latest = await api.vehicle.latest().catch(() => null);
-          if (latest) setInitial(latest);
-          setChargingControlMsg(null);
-        } catch {
-          setChargingControlMsg(null);
-        }
-      }, 30_000);
+      if (chargingPendingTimeout.current) clearTimeout(chargingPendingTimeout.current);
+      chargingPendingTimeout.current = setTimeout(() => setChargingPendingAction(null), 6 * 60_000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setChargingControlMsg(`Error: ${msg}`);
-    } finally {
-      setChargingControlLoading(false);
+      setChargingPendingAction(null);
     }
   }
 
   async function handleClimate(action: "start" | "stop") {
-    setClimateLoading(true);
+    setClimatePendingAction(action);
     setClimateMsg(null);
     try {
       await api.vehicle.climate(action);
-      setClimateMsg(action === "start" ? "Climate started — refreshing in 30s…" : "Climate stopped — refreshing in 30s…");
-      // Trigger a poll after 30 s so the UI reflects the new climate state
-      setTimeout(async () => {
-        try {
-          await api.vehicle.poll();
-          const latest = await api.vehicle.latest().catch(() => null);
-          if (latest) setInitial(latest);
-          setClimateMsg(null);
-        } catch {
-          setClimateMsg(null);
-        }
-      }, 30_000);
+      if (climatePendingTimeout.current) clearTimeout(climatePendingTimeout.current);
+      climatePendingTimeout.current = setTimeout(() => setClimatePendingAction(null), 6 * 60_000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setClimateMsg(`Error: ${msg}`);
-    } finally {
-      setClimateLoading(false);
+      setClimatePendingAction(null);
     }
   }
 
@@ -342,15 +354,17 @@ export default function DashboardClient({ initial: initialProp, history: history
           <div className="text-xs text-gray-500 uppercase tracking-wider">Climate control</div>
           <button
             onClick={() => handleClimate(isClimateActive ? "stop" : "start")}
-            disabled={climateLoading}
+            disabled={climatePendingAction !== null}
             className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
-              disabled:opacity-40 disabled:cursor-not-allowed transition
-              ${isClimateActive
+              disabled:cursor-not-allowed transition
+              ${climatePendingAction !== null
+                ? "bg-white/5 text-gray-400 border border-white/10 opacity-70"
+                : isClimateActive
                 ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20"
                 : "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20"}`}
           >
-            <Wind size={15} />
-            {isClimateActive ? "Stop AC" : "Start AC"}
+            <Wind size={15} className={climatePendingAction !== null ? "animate-pulse" : ""} />
+            {climatePendingAction === "start" ? "Starting…" : climatePendingAction === "stop" ? "Stopping…" : isClimateActive ? "Stop AC" : "Start AC"}
           </button>
           {climateMsg && (
             <div className={`text-xs text-center ${climateMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
@@ -364,15 +378,17 @@ export default function DashboardClient({ initial: initialProp, history: history
           <div className="text-xs text-gray-500 uppercase tracking-wider">Charging control</div>
           <button
             onClick={() => handleChargingControl(isCharging ? "stop" : "start")}
-            disabled={chargingControlLoading || (!plugged && !isCharging)}
+            disabled={chargingPendingAction !== null || (!plugged && !isCharging)}
             className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium
               disabled:opacity-40 disabled:cursor-not-allowed transition
-              ${isCharging
+              ${chargingPendingAction !== null
+                ? "bg-white/5 text-gray-400 border border-white/10 opacity-70"
+                : isCharging
                 ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20"
                 : "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20"}`}
           >
-            <Plug size={15} />
-            {isCharging ? "Stop Charging" : "Start Charging"}
+            <Plug size={15} className={chargingPendingAction !== null ? "animate-pulse" : ""} />
+            {chargingPendingAction === "start" ? "Starting…" : chargingPendingAction === "stop" ? "Stopping…" : isCharging ? "Stop Charging" : "Start Charging"}
           </button>
           {chargingControlMsg && (
             <div className={`text-xs text-center ${chargingControlMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>

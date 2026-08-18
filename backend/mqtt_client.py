@@ -28,6 +28,10 @@ _active_config: tuple | None = None
 # a discovery config for it would leave a permanently "Unknown" entity in HA,
 # so those entities are only announced once real data shows up.
 _seen_fields: set[str] = set()
+# Most recent full state payload published, kept so an optimistic update (see
+# _publish_optimistic_update) can patch just the one field a command affects without
+# clobbering everything else in the retained state topic.
+_last_payload: dict[str, Any] | None = None
 
 # Sensor / binary_sensor / switch definitions exposed to Home Assistant.
 # id            -> object_id used in unique_id and discovery topic
@@ -84,12 +88,30 @@ _ENTITIES: list[dict[str, Any]] = [
     {"id": "charging", "name": "Charging", "component": "switch",
      "tpl": "{{ 'ON' if value_json.charging_state == 'charging' else 'OFF' }}",
      "icon": "mdi:ev-station", "command_topic": "charging/set"},
+    {"id": "window_heating", "name": "Window Heating", "component": "switch",
+     "tpl": "{{ 'ON' if value_json.window_heating_state == 'on' else 'OFF' }}",
+     "icon": "mdi:car-defrost-rear", "command_topic": "window_heating/set"},
+    # button — momentary trigger, no on/off state to track. Forces VW to refresh the
+    # vehicle's data; see poller.wake_vehicle().
+    {"id": "wake", "name": "Wake Vehicle", "component": "button",
+     "icon": "mdi:sleep-off", "command_topic": "wake/set"},
 ]
 
-# command_topic suffix -> control action dispatched via poller.set_climate/set_charging
+# command_topic suffix -> control action dispatched via the matching poller.set_*/wake_vehicle
 _COMMANDS: dict[str, str] = {
     "climate/set": "climate",
     "charging/set": "charging",
+    "window_heating/set": "window_heating",
+    "wake/set": "wake",
+}
+
+# action_name -> (state payload field, assumed value once started, assumed value once stopped),
+# used to optimistically flip the HA switch the instant a command is sent — see
+# publish_optimistic_update(). Values match what the entities' own value_template checks for.
+_OPTIMISTIC_STATE: dict[str, tuple[str, str, str]] = {
+    "climate": ("climatisation_state", "heating", "off"),
+    "charging": ("charging_state", "charging", "off"),
+    "window_heating": ("window_heating_state", "on", "off"),
 }
 
 
@@ -133,11 +155,12 @@ def _publish_entity_discovery(client, s, e: dict[str, Any]) -> None:
     cfg: dict[str, Any] = {
         "name": e["name"],
         "unique_id": f"{node_id}_{object_id}",
-        "state_topic": state_topic,
-        "value_template": e["tpl"],
         "availability_topic": avail_topic,
         "device": device,
     }
+    if e.get("tpl"):
+        cfg["state_topic"] = state_topic
+        cfg["value_template"] = e["tpl"]
     if e.get("unit"):
         cfg["unit_of_measurement"] = e["unit"]
     for key in ("device_class", "state_class", "icon"):
@@ -207,6 +230,17 @@ def _build_client(s):
         action_name = _COMMANDS.get(suffix)
         if action_name is None:
             return
+        import poller
+
+        if action_name == "wake":
+            # Button — momentary trigger, any payload (HA sends "PRESS") fires it.
+            ok, message = poller.wake_vehicle()
+            if not ok:
+                logger.warning("MQTT: wake command failed: %s", message)
+            else:
+                logger.info("MQTT: wake command sent")
+            return
+
         try:
             command = msg.payload.decode().strip().upper()
         except Exception:
@@ -215,13 +249,18 @@ def _build_client(s):
             logger.warning("MQTT: ignoring unrecognised payload %r on %s", command, msg.topic)
             return
         action = "start" if command == "ON" else "stop"
-        import poller
-        control_fn = poller.set_climate if action_name == "climate" else poller.set_charging
+        control_fn = {
+            "climate": poller.set_climate,
+            "charging": poller.set_charging,
+            "window_heating": poller.set_window_heating,
+        }[action_name]
         ok, message = control_fn(action)
         if not ok:
             logger.warning("MQTT: %s %s command failed: %s", action_name, action, message)
         else:
             logger.info("MQTT: %s %s command sent", action_name, action)
+            field, on_value, off_value = _OPTIMISTIC_STATE[action_name]
+            publish_optimistic_update(field, on_value if action == "start" else off_value)
 
     client.on_connect = _on_connect
     client.on_message = _on_message
@@ -280,6 +319,7 @@ def _teardown_client() -> None:
 
 def publish_snapshot(payload: dict) -> None:
     """Publish the latest vehicle snapshot to MQTT. No-op when disabled."""
+    global _last_payload
     from config import settings as s
     if not s.mqtt_enabled or not s.mqtt_host:
         return
@@ -289,10 +329,36 @@ def publish_snapshot(payload: dict) -> None:
             return
         try:
             client.publish(_state_topic(s), json.dumps(payload), qos=0, retain=True)
+            _last_payload = payload
             if s.mqtt_discovery:
                 _publish_late_discovery(client, s, payload)
         except Exception as exc:
             logger.warning("MQTT publish failed: %s", exc)
+
+
+def publish_optimistic_update(field: str, value: Any) -> None:
+    """Patch one field of the last published state and republish immediately.
+
+    Used right after an MQTT-triggered command succeeds: HA switches are expected to flip
+    instantly rather than wait for the real confirmation, which — thanks to the volkswagen
+    connector's own status cache — can take a few minutes (see poller._schedule_confirmation_polls).
+    The real poll that eventually lands corrects this automatically via the normal
+    publish_snapshot() call above, whatever it turns out to say.
+    """
+    global _last_payload
+    from config import settings as s
+    if not s.mqtt_enabled or not s.mqtt_host or _last_payload is None:
+        return
+    with _lock:
+        client = _ensure_client()
+        if client is None:
+            return
+        try:
+            optimistic = {**_last_payload, field: value}
+            client.publish(_state_topic(s), json.dumps(optimistic), qos=0, retain=True)
+            _last_payload = optimistic
+        except Exception as exc:
+            logger.warning("MQTT optimistic publish failed: %s", exc)
 
 
 def init() -> None:

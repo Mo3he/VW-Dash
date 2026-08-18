@@ -39,6 +39,7 @@ class VehicleSnapshot(Base):
     battery_temp_min_c: Mapped[Optional[float]] = mapped_column(Float)
     battery_temp_max_c: Mapped[Optional[float]] = mapped_column(Float)
     climatisation_state: Mapped[Optional[str]] = mapped_column(String(32))
+    window_heating_state: Mapped[Optional[str]] = mapped_column(String(32))
 
     # Vehicle status
     locked: Mapped[Optional[bool]] = mapped_column(Boolean)
