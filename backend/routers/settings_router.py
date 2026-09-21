@@ -79,23 +79,27 @@ def get_settings():
 
 @router.patch("")
 def update_settings(body: SettingsUpdate):
+    # The Settings form always resends the current username/provider/country/VIN on every
+    # save (they're pre-filled from GET /api/settings), so "field present in the request" is
+    # not the same as "field actually changed" — comparing against the live settings avoids
+    # forcing a WeConnect re-login (and risking VW's login rate-limit) on unrelated saves.
     credentials_changed = any([
-        body.vw_username is not None,
-        body.vw_password is not None,
-        body.vw_vin is not None,
-        body.vw_provider is not None,
-        body.vw_country is not None,
+        body.vw_username is not None and body.vw_username != settings.vw_username,
+        body.vw_password is not None and body.vw_password != "",
+        body.vw_vin is not None and body.vw_vin != settings.vw_vin,
+        body.vw_provider is not None and body.vw_provider != settings.vw_provider,
+        body.vw_country is not None and body.vw_country != settings.vw_country,
     ])
 
     mqtt_changed = any([
-        body.mqtt_enabled is not None,
-        body.mqtt_host is not None,
-        body.mqtt_port is not None,
-        body.mqtt_username is not None,
-        body.mqtt_password is not None,
-        body.mqtt_base_topic is not None,
-        body.mqtt_discovery is not None,
-        body.mqtt_discovery_prefix is not None,
+        body.mqtt_enabled is not None and body.mqtt_enabled != settings.mqtt_enabled,
+        body.mqtt_host is not None and body.mqtt_host != settings.mqtt_host,
+        body.mqtt_port is not None and body.mqtt_port != settings.mqtt_port,
+        body.mqtt_username is not None and body.mqtt_username != settings.mqtt_username,
+        body.mqtt_password is not None and body.mqtt_password != "",
+        body.mqtt_base_topic is not None and body.mqtt_base_topic != settings.mqtt_base_topic,
+        body.mqtt_discovery is not None and body.mqtt_discovery != settings.mqtt_discovery,
+        body.mqtt_discovery_prefix is not None and body.mqtt_discovery_prefix != settings.mqtt_discovery_prefix,
     ])
 
     persist_settings(
