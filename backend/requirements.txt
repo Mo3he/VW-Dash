@@ -6,7 +6,7 @@ apscheduler==3.10.4
 carconnectivity
 carconnectivity-connector-volkswagen
 requests
-python-dotenv==1.0.1
+python-dotenv==1.2.3
 pydantic-settings==2.6.1
 httpx==0.28.1
 aiosqlite==0.20.0
