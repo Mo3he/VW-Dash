@@ -1,4 +1,5 @@
 # VW-Dash
+$${\color{red}\Huge\textsf{I no longer own a VW so cannot keep this repo maintained}}$$
 
 A self-hosted dashboard for VW ID. series electric vehicles (ID.3, ID.4, ID.7, and other WeConnect-compatible models) that tracks battery state, trips, charging sessions, and more, with live WebSocket updates.
 
