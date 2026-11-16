@@ -10,7 +10,7 @@ python-dotenv==1.0.1
 pydantic-settings==2.6.1
 httpx==0.28.1
 aiosqlite==0.20.0
-eval_type_backport==0.2.0
+eval_type_backport==0.4.0
 python-multipart==0.0.20
 cryptography==43.0.3
 python-jose[cryptography]==3.3.0
